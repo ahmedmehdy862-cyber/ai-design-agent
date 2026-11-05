@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# local runtime / scratch
+workspace/
+*.log
+*.png.tmp
+
+# vercel / node
+.vercel/
+node_modules/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
