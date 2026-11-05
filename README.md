@@ -4,6 +4,9 @@
 
 > الموقع ثابت بالكامل: خصّه على Vercel واعرضه محليًا أثناء التطوير.
 
+**🌐 الموقع الحيّ (Vercel):** https://ai-design-agent-gules.vercel.app
+**📦 المصدر (GitHub):** https://github.com/ahmedmehdy862-cyber/ai-design-agent
+
 ---
 
 ## لماذا «مِرسم»؟
@@ -51,11 +54,17 @@ python -m pytest tests/unit -q
 
 ### Vercel (رابط عرض فوري)
 
+**مُنشَر فعليًا:** https://ai-design-agent-gules.vercel.app
+
 ```bash
 npm i -g vercel
 vercel login
-vercel --prod        # vercel.json يضبط outputDirectory = web
+vercel --prod        # vercel.json يضبط outputDirectory = web + framework = null
 ```
+
+ملاحظات تشغيل:
+- `.vercelignore` يمنع رفع `workspace/` ومحرك بايثون (الموقع ثابت فقط) — بدونه يفشل الرفع بحجم ~6MB أو بحث Vercel عن مدخل Python.
+- إن ظهر خطأ `No python entrypoint found` فتأكد أن `framework: null` و`buildCommand: ""` في `vercel.json`.
 
 ### GitHub (المصدر والاختبارات)
 
@@ -65,6 +74,8 @@ gh repo create ai-design-agent --public --source . --push
 ```
 
 CI (`.github/workflows/ci.yml`) يشغّل اختبارات بايثون + فحص صياغة JS مع كل دفعة.
+
+> **حالة CI:** الملف موجود في المستودع محليًا فقط — رمز GitHub الحالي بلا نطاق `workflow` فيمنع الدفع. للتفعيل: `gh auth refresh -h github.com -s workflow` ثم أدخل الرمز على https://github.com/login/device ثم `git push origin main`.
 
 ---
 

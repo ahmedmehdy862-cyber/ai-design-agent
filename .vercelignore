@@ -1,0 +1,13 @@
+# يُرفع إلى Vercel فقط ما يلزم الموقع الثابت (outputDirectory = web)
+workspace/
+.pytest_cache/
+.github/
+tests/
+docs/
+scripts/
+__pycache__/
+*.pyc
+*.mojibake.bak
+# محرك بايثون محلي فقط — لا داعي لرفعه (الموقع ثابت)
+requirements.txt
+app/
