@@ -5,8 +5,7 @@ fixes; no blind regeneration; stop at max_retries (default 3) or when clean.
 Subjective review (hierarchy/harmony) is a SEPARATE pass — never scored here.
 """
 from __future__ import annotations
-import json, os, sys, copy
-from dataclasses import asdict
+import json, os, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from app.planner.planner import Brief, plan as make_plan, contrast, readable_ink  # noqa: E402
@@ -29,8 +28,12 @@ def apply_fixes(plan: dict, report) -> list[dict]:
         iid, sev = issue["id"], issue["severity"]
 
         if iid == "size":
-            plan["canvas"] = (report.expect_w if hasattr(report, "expect_w") else W, H)
-            fixes.append({"issue": iid, "action": "re-export at brief size"})
+            # the plan is the source of truth: pin it to the brief expectation
+            # so the next producer.produce() exports at exactly that size
+            ew = int(getattr(report, "expect_w", 0) or W)
+            eh = int(getattr(report, "expect_h", 0) or H)
+            plan["canvas"] = (ew, eh)
+            fixes.append({"issue": iid, "action": f"re-export at brief size {ew}x{eh}"})
 
         elif iid == "edge-spill":
             # pull non-bleed elements inward; keep documented full-bleed band

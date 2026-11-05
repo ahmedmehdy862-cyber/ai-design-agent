@@ -835,6 +835,22 @@ let parsedBrief = null;
    genre/preset switches and the correction loop. */
 const overrides = {};
 
+/* B8: persist designer edits across a page refresh. Same-origin localStorage
+   only — never leaves the browser, and it holds layout values, no secrets. */
+function saveOverrides() {
+  try { localStorage.setItem('mirsam.overrides', JSON.stringify(overrides)); }
+  catch { /* storage full/blocked — edits still live for this session */ }
+}
+function loadOverrides() {
+  try {
+    const raw = localStorage.getItem('mirsam.overrides');
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (o && typeof o === 'object') Object.assign(overrides, o);
+  } catch { /* corrupt value — start clean */ }
+}
+loadOverrides();
+
 function briefFromUI() {
   const [w, h] = $('size').value.split('x').map(Number);
   return {
@@ -1184,6 +1200,19 @@ document.querySelectorAll('.chip[data-preset]').forEach(chip => {
   });
 });
 
-/* ---- boot ---- */
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(generate);
-else generate();
+/* ---- boot (B12) ----
+   fonts.ready can settle before DOMContentLoaded; wait for BOTH, and never
+   double-generate if a module already produced a first design. */
+function bootGenerate() {
+  if (lastPlan || busy) return;
+  generate();
+}
+function bootStart() {
+  const fontsReady = (document.fonts && document.fonts.ready) || Promise.resolve();
+  fontsReady.then(bootGenerate, bootGenerate);
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootStart, { once: true });
+} else {
+  bootStart();
+}

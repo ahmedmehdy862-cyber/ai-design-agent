@@ -79,8 +79,9 @@ async function slideThumb(s) {
   const key = slideKey(s);
   if (thumbCache.has(key)) return thumbCache.get(key);
 
-  const plan = makePlan(slideBrief(s));
-  const full = await svgToCanvas(renderSVG(plan), plan.canvas[0], plan.canvas[1]);
+  const res = await runLoop(slideBrief(s));   /* B7: same knowledge/overrides/QA pipeline as the main preview */
+  const plan = res.plan;
+  const full = res.canvas;
   const tw = 132;
   const th = Math.max(56, Math.round(tw * plan.canvas[1] / plan.canvas[0]));
   const c = document.createElement('canvas');

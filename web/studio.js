@@ -28,8 +28,10 @@ function applyBrief(p) {
   if (!p) return;
   if (p.headline) $s('headline').value = p.headline;
   if (p.subhead != null && p.subhead !== '') $s('subhead').value = p.subhead;
-  if (p.cta != null) $s('cta').value = p.cta;
-  if (p.kicker != null) $s('kicker').value = p.kicker;
+  /* only overwrite when the parse actually found text — an empty value would
+     wipe what the designer typed by hand (B9) */
+  if (p.cta) $s('cta').value = p.cta;
+  if (p.kicker) $s('kicker').value = p.kicker;
 
   if (p.size && [...$s('size').options].some(o => o.value === p.size)) $s('size').value = p.size;
   if (p.genre && DESIGN_GENRES.some(g => g.id === p.genre)) $s('genre').value = p.genre;
@@ -91,6 +93,16 @@ function renderAIConfig() {
   if ($s('aiModel')) $s('aiModel').value = cfg.model || (AI_PROVIDERS[cfg.provider || 'gemini'].model || '');
   if ($s('aiEndpoint')) $s('aiEndpoint').value = cfg.endpoint || '';
   if ($s('aiKey')) $s('aiKey').value = cfg.key || '';
+  syncProviderUI();
+}
+
+/* B1: the key field must always be reachable; only the endpoint input is
+   provider-specific (Gemini builds its URL from model+key, the others may
+   point at OpenRouter/Groq/Ollama) */
+function syncProviderUI() {
+  const p = $s('aiProvider') ? $s('aiProvider').value : 'gemini';
+  if ($s('aiEndpointRow')) $s('aiEndpointRow').style.display = '';
+  if ($s('aiEndpointField')) $s('aiEndpointField').style.display = p === 'gemini' ? 'none' : '';
 }
 
 function readAIConfig() {
@@ -257,7 +269,11 @@ async function runEngine() {
   if (cfg.endpoint) localStorage.setItem('mirsam.engine', JSON.stringify(cfg));
   if (status) status.className = 'status pending', status.textContent = 'جارٍ الإرسال للمحرّك…';
   try {
-    const brief = lastPlan ? lastPlan.brief : { headline: $s('headline').value };
+    /* B2: carry the real canvas size — the gateway defaults to 1080×1350 */
+    const [ew, eh] = (($s('size') && $s('size').value) || '1080x1350').split('x').map(Number);
+    const brief = lastPlan
+      ? Object.assign({}, lastPlan.brief, { width: lastPlan.canvas[0], height: lastPlan.canvas[1] })
+      : { headline: $s('headline').value, width: ew || 1080, height: eh || 1350 };
     const url = await sendToEngine(cfg, brief);
     if (status) { status.className = 'status ok'; status.textContent = 'تم ✓'; }
     window.open(url, '_blank');
@@ -284,7 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if ($s('aiProvider')) $s('aiProvider').addEventListener('change', () => {
     const p = AI_PROVIDERS[$s('aiProvider').value];
     if ($s('aiModel')) $s('aiModel').value = p.model || '';
-    if ($s('aiEndpointRow')) $s('aiEndpointRow').style.display = $s('aiProvider').value === 'openai' ? 'none' : '';
+    syncProviderUI();
   });
   if ($s('aiSave')) $s('aiSave').addEventListener('click', () => {
     readAIConfig();
@@ -301,8 +317,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   if ($s('flatSvg')) $s('flatSvg').addEventListener('click', () => {
     if (!lastPlan) return;
-    downloadText(`mirsam-${lastPlan.canvas[0]}x${lastPlan.canvas[1]}.svg`,
-      renderSVG(lastPlan), 'image/svg+xml;charset=utf-8');
+    const scale = Number($s('exportScale') ? ($s('exportScale').value || 1) : 1);
+    const [w0, h0] = lastPlan.canvas;
+    let svg = renderSVG(lastPlan);
+    /* B10: honour the scale — vector stays vector, only intrinsic size changes */
+    if (scale !== 1) {
+      svg = svg.replace(`width="${w0}" height="${h0}"`,
+        `width="${Math.round(w0 * scale)}" height="${Math.round(h0 * scale)}"`);
+    }
+    const suffix = scale !== 1 ? `-${scale}x` : '';
+    downloadText(`mirsam-${w0}x${h0}${suffix}.svg`,
+      svg, 'image/svg+xml;charset=utf-8');
   });
   if ($s('flatJson')) $s('flatJson').addEventListener('click', () => {
     if (lastPlan) downloadJSON('mirsam-project.json', buildProject(lastPlan, { target: 'generic' }));
@@ -366,10 +391,10 @@ async function exportVideoWebM() {
 
     const rendered = [];
     for (const s of list) {
-      const plan = makePlan(slideBrief(s));
       /* eslint-disable-next-line no-await-in-loop */
-      const c = await svgToCanvas(renderSVG(plan), plan.canvas[0], plan.canvas[1]);
-      rendered.push({ canvas: finish(c, plan), bg: plan.palette.bg, w: plan.canvas[0], h: plan.canvas[1] });
+      const res = await runLoop(slideBrief(s));   /* same pipeline as the PNG export (B7) */
+      const plan = res.plan;
+      rendered.push({ canvas: res.canvas, bg: plan.palette.bg, w: plan.canvas[0], h: plan.canvas[1] });
     }
     const W = rendered[0].w, H = rendered[0].h;
 

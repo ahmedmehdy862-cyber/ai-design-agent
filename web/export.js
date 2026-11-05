@@ -24,15 +24,15 @@ const EXPORT_PROGRAMS = {
     kind: 'frames', guide: 'FILMCRAFT'
   },
   canva: {
-    label: 'Canva (SVG + PNG شفاف)',
-    kind: 'vector', guide: 'CANVA'
+    label: 'Canva (طبقات PNG + SVG متجهي)',
+    kind: 'layers', guide: 'CANVA'
   }
 };
 
 const EXPORT_GUIDES = {
   PHOTOCRAFT: `PhotoCraft — استيراد مشروع مِرسم
 1) افتح PhotoCraft (أو photo-craft CLI) وأنشئ وثيقة جديدة بنفس المقاس.
-2) استورد مخرَج الملفات: ملف الطبقات PNG (مirsam-layers.json) يقول اسم كل طبقة وترتيبها.
+2) استورد مخرَج الملفات: mirsam-project.json يقول اسم كل طبقة وترتيبها، وملفات layer-NN-*.png للمظهر النهائي.
 3) اسحب الطبقات بالترتيب من 01 إلى الأخير: خلفية ← كتل لونية ← زخرفة ← نصوص ← تشطيب.
 4) احفظ نسخة .pcraft قابلة للتعديل — لا تدمج الطبقات.
 5) للنص: استبدل كل طبقة PNG بنص حقيقي بنفس الحجم والموضع (ملف JSON يعطي النص والخط واللون).`,
@@ -56,7 +56,7 @@ const EXPORT_GUIDES = {
 4) للحركة: أدرج العناصر كمقاطع مفصولة (مثلاً النص في الإطار ١٠، الزخرفة في ٠) مع انتقال ٦ إطارات.
 5) اجعل كل طبقة مستقلة: لا تدمج، حتى تُحرّك كل عنصرًا منفردًا.`,
   CANVA: `Canva — صيغ قابلة للتعديل
-1) ارفع mirsam-layers.svg (المتجهي) وmirsam-layers/*.png معاً عبر رفع عدة ملفات.
+1) ارفع mirsam-layers.svg (المتجهي) وملفات layer-NN-*.png معاً عبر رفع عدة ملفات.
 2) المتجه يحافظ على النص والأشكال قابلة للتعديل؛ الـPNG يحفظ المظهر النهائي.
 3) كل عنصر في Canva = طبقة مستقلة؛ استخدم نفس الأسماء لتطابق الخطة.
 4) العناصر النصية في الخطة (العنوان/الثانوي/الزر) أعد إدخالها كنصوص Canva للتعديل الكامل.
@@ -175,20 +175,20 @@ ${rows}
 async function exportFlat(plan, canvas, opts = {}) {
   const scale = opts.scale || 1;
   const fmt = opts.format || 'png';
+  const mime = fmt === 'jpg' ? 'image/jpeg' : (fmt === 'webp' ? 'image/webp' : 'image/png');
   let blob = null;
-  const base = `mirsam-${plan.canvas[0]}x${plan.canvas[1]}`;
+  const [w0, h0] = plan.canvas;
+  const base = `mirsam-${w0}x${h0}`;
 
-  if (scale === 1 && fmt === 'png') {
-    blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  if (scale === 1) {
+    blob = await new Promise(res => canvas.toBlob(res, mime, 0.92));
   } else {
-    const c = document.createElement('canvas');
-    c.width = Math.round(plan.canvas[0] * scale);
-    c.height = Math.round(plan.canvas[1] * scale);
-    const ctx = c.getContext('2d');
-    if (fmt === 'png') ctx.imageSmoothingQuality = 'high';
-    else { ctx.fillStyle = plan.palette.bg; ctx.fillRect(0, 0, c.width, c.height); }
-    ctx.drawImage(canvas, 0, 0, c.width, c.height);
-    const mime = fmt === 'jpg' ? 'image/jpeg' : (fmt === 'webp' ? 'image/webp' : 'image/png');
+    /* B10: re-render the vector at the target resolution — upscaling the
+       bitmap would only blur it. Keep the SVG intrinsic size in sync so the
+       browser rasterises at full quality, then re-apply the grain layer. */
+    const W = Math.round(w0 * scale), H = Math.round(h0 * scale);
+    const svg = renderSVG(plan).replace(`width="${w0}" height="${h0}"`, `width="${W}" height="${H}"`);
+    const c = finish(await svgToCanvas(svg, W, H), plan);
     blob = await new Promise(res => c.toBlob(res, mime, 0.92));
   }
   downloadBlob(`${base}-${scale}x.${fmt}`, blob);
@@ -205,6 +205,14 @@ async function exportForProgram(program, plan, canvas, opts = {}) {
     scale, target: program, fps: opts.fps || 30, slides: opts.slides || 1
   });
 
+  /* B3: annotate overflow layers BEFORE the JSON leaves — after the download
+     the note would never reach the file */
+  const raster = def.kind !== 'vector';
+  const maxLayers = 14;
+  if (raster && plan.elements.length > maxLayers) {
+    project.layers.slice(maxLayers).forEach(l => (l.note = 'غير مُصدَّر كملف — موضَّح في الخطة'));
+  }
+
   downloadJSON('mirsam-project.json', project);
   files.push('mirsam-project.json');
   await delay(120);
@@ -219,9 +227,9 @@ async function exportForProgram(program, plan, canvas, opts = {}) {
     await delay(120);
   }
 
-  if (def.kind !== 'vector') {
+  if (raster) {
     /* raster packages carry every layer as its own transparent PNG */
-    const max = Math.min(plan.elements.length, 14);
+    const max = Math.min(plan.elements.length, maxLayers);
     for (let i = 0; i < max; i++) {
       const el = plan.elements[i];
       const elCanvas = await layerPNG(plan, i);
@@ -230,10 +238,6 @@ async function exportForProgram(program, plan, canvas, opts = {}) {
       downloadBlob(name, blob);
       files.push(name);
       await delay(160);
-    }
-    if (plan.elements.length > max) {
-      /* the rest are documented in the project JSON instead of spamming downloads */
-      project.layers.slice(max).forEach(l => (l.note = 'غير مُصدَّر كملف — موضَّح في الخطة'));
     }
   }
 

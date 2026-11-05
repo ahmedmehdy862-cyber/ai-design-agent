@@ -66,12 +66,14 @@ function setOverride(key, patch, label) {
     if (v === null || v === undefined || v === '' || v === false) delete cur[k];
   }
   if (!Object.keys(cur).length) delete overrides[key];
+  saveOverrides();   /* B8: survive a page refresh */
   inspStatus(`${label} — ${Object.keys(overrides).length ? 'حُفظ التعديل ويبقى بعد التوليد' : 'أُعيد العنصر لقيمته'}`, 'ok');
   debounced();
 }
 
 function resetAll() {
   for (const k of Object.keys(overrides)) delete overrides[k];
+  saveOverrides();   /* B8: clear the persisted copy too */
   layerSig = '';
   selectedKey = null;
   renderLayers(true);
@@ -331,7 +333,16 @@ function bindShortcuts() {
     const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
     const mod = e.ctrlKey || e.metaKey || e.altKey;
 
-    if (e.key === 'Escape') { kbdHelp(false); return; }
+    if (e.key === 'Escape') {
+      kbdHelp(false);
+      /* B5: Esc also drops the current layer selection (help text promises it) */
+      if (selectedKey) {
+        selectedKey = null;
+        renderLayers();
+        inspStatus('أُلغي التحديد');
+      }
+      return;
+    }
     if (mod || typing) return;
 
     const k = e.key;

@@ -81,6 +81,8 @@ class Report:
     width: int = 0
     height: int = 0
     expect_ok: bool = True
+    expect_w: int = 0            # brief size on mismatch (0 = not compared)
+    expect_h: int = 0
     blankness: int = 0
     ink_ratio: float = 0.0
     center_of_mass: tuple = (0.0, 0.0)

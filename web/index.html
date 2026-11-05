@@ -6,7 +6,7 @@
 <title>مِرسم — وكيل تصميم بالقياس</title>
 <meta name="description" content="وكيل تصميم يولّد بوسترات احترافية عربية من موجز، ثم يقيس النتيجة ويصحّحها ذاتيًا — بالكامل في متصفحك.">
 <meta name="theme-color" content="#0b0e13">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=4">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0e13'/><circle cx='11' cy='11' r='5' fill='%23f4a417'/><rect x='16' y='18' width='10' height='4' rx='2' fill='%23e9ecf2'/></svg>">
 </head>
 <body>
@@ -21,7 +21,7 @@
   </div>
   <div class="badges">
     <span class="badge">يعمل في متصفحك</span>
-    <span class="badge badge-accent">٠ خادم · ٠ مفاتيح API</span>
+    <span class="badge badge-accent">٠ خادم · مفاتيح اختيارية محلية</span>
   </div>
 </header>
 
@@ -345,8 +345,8 @@
                 <input id="aiModel" type="text" value="gemini-1.5-flash" autocomplete="off">
               </label>
             </div>
-            <div class="row" id="aiEndpointRow" style="display:none">
-              <label class="field">
+            <div class="row" id="aiEndpointRow">
+              <label class="field" id="aiEndpointField">
                 <span>رابط نقطة النهاية</span>
                 <input id="aiEndpoint" type="text" placeholder="https://api.example.com/v1/chat/completions" autocomplete="off">
               </label>
@@ -510,7 +510,7 @@
       <li><kbd>V</kbd><span>تنزيل SVG متجهي</span></li>
       <li><kbd>R</kbd><span>نوّع (خلط نوع/تكوين/باليتة)</span></li>
       <li><kbd>←</kbd> <kbd>→</kbd><span>الشريحة التالية / السابقة (اتجاه القراءة)</span></li>
-      <li><kbd>1</kbd>–<kbd>5</kbd><span>طبقات التغذية البصرية (شبكة · آمنة · حبر · تركيز · حواف)</span></li>
+      <li><kbd>1</kbd>–<kbd>5</kbd><span>طبقات التغذية البصرية (تركيز · حواف · شبكة · آمنة · حبر)</span></li>
       <li><kbd>Del</kbd><span>إخفاء/إظهار العنصر المحدٍّد في الفاحص</span></li>
       <li><kbd>Esc</kbd><span>إغلاق النوافذ وإلغاء التحديد</span></li>
       <li><kbd>?</kbd><span>هذه القائمة</span></li>
@@ -526,11 +526,11 @@
   <p>مبني على مبادئ تصميم قابلة للقياس: تسلسل بصري، تباين WCAG، شبكة وهوامش، لون ٦٠-٣٠-١٠، وقواعد الخط العربي.</p>
 </footer>
 
-<script src="knowledge.js?v=3"></script>
-<script src="export.js?v=3"></script>
-<script src="app.js?v=3"></script>
-<script src="carousel.js?v=3"></script>
-<script src="inspector.js?v=3"></script>
-<script src="studio.js?v=3"></script>
+<script src="knowledge.js?v=4"></script>
+<script src="export.js?v=4"></script>
+<script src="app.js?v=4"></script>
+<script src="carousel.js?v=4"></script>
+<script src="inspector.js?v=4"></script>
+<script src="studio.js?v=4"></script>
 </body>
 </html>
