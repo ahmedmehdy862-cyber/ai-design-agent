@@ -6,7 +6,7 @@
 <title>مِرسم — وكيل تصميم بالقياس</title>
 <meta name="description" content="وكيل تصميم يولّد بوسترات احترافية عربية من موجز، ثم يقيس النتيجة ويصحّحها ذاتيًا — بالكامل في متصفحك.">
 <meta name="theme-color" content="#0b0e13">
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=9">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0e13'/><circle cx='11' cy='11' r='5' fill='%23f4a417'/><rect x='16' y='18' width='10' height='4' rx='2' fill='%23e9ecf2'/></svg>">
 </head>
 <body>
@@ -402,16 +402,56 @@
             <button id="mediaSplit" class="btn" type="button">قسّم الوصف إلى شرائح</button>
             <button id="mediaCarDownload" class="btn" type="button">تنزيل كل الشرائح PNG</button>
           </div>
+
+          <span class="mini-title media-space">إطار صورة داخل التصميم</span>
+          <div class="row">
+            <label class="field">
+              <span>موضع الإطار</span>
+              <select id="frameSlot">
+                <option value="left-panel">لوح جانبي (يسار)</option>
+                <option value="top-band">شريط علوي (٣٠٪)</option>
+                <option value="bottom-band">شريط سفلي (٢٨٪)</option>
+                <option value="corner">مربّع الزاوية العليا</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>ملء الصورة</span>
+              <select id="frameFit">
+                <option value="cover">قصّ (ملء الإطار)</option>
+                <option value="contain">احتواء (إظهار الصورة كاملة)</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label class="btn btn-primary file-btn">ارفع صورة من الجهاز<input id="frameFile" type="file" accept="image/*" hidden></label>
+            <button id="frameClear" class="btn" type="button">أزل الإطار</button>
+          </div>
+
+          <span class="mini-title media-space">رمز QR داخل التصميم</span>
+          <div class="row">
+            <label class="field">
+              <span>النص أو الرابط داخل الرمز</span>
+              <input id="qrText" type="text" dir="ltr" placeholder="https://example.com" autocomplete="off">
+            </label>
+          </div>
+          <div class="row">
+            <button id="qrAdd" class="btn btn-primary" type="button">أضف رمز QR</button>
+            <button id="qrClear" class="btn" type="button">أزل الرمز</button>
+          </div>
+
           <div id="mediaStatus" class="status"></div>
-          <p class="hint">الفيديو يُسجٍّل بالوقت الفعلي من نفس المحرك (VP9/WebM) بمقدّم ثابت وتلاشٍ ناعم بين الشرائح بالدقة الكاملة — مناسب لعرض كاروسيل متحرّك أو ريلز قصير بلا أي خادم. خطة المحتوى تخرج Markdown جاهزًا للنشر، والشرائح PNG تخرج مع manifest يرتّبها.</p>
+          <p class="hint">الفيديو يُسجٍّل بالوقت الفعلي من نفس المحرك (VP9/WebM) بمقدّم ثابت وتلاشٍ ناعم بين الشرائح بالدقة الكاملة — مناسب لعرض كاروسيل متحرّك أو ريلز قصير بلا أي خادم. خطة المحتوى تخرج Markdown جاهزًا للنشر، والشرائح PNG تخرج مع manifest يرتّبها. إطار الصورة ورمز QR يُحفظان محليًا في المتصفح ويبقان بعد إعادة التحميل؛ الصورة تُصغَّر إلى ١٤٠٠ بكسل وتُضمَّن في كل مخرج (SVG/PNG/PDF/PSD).</p>
         </div>
         <aside class="pane-side">
           <span class="mini-title">صيغ التسليم المتاحة</span>
           <ul class="file-list">
             <li>ثابت: PNG · SVG متجهي · طبقات PNG شفافة · خطة JSON</li>
+            <li>طباعة: PDF بنفس نسب التصميم (1×/2×)</li>
+            <li>تعديل: PSD بطبقات مسمّاة يُفتح في PhotoCraft وPhotoshop</li>
+            <li>حركة: WebM (VP9) · GIF متحرّك بين الشرائح</li>
             <li>كاروسيل: PNG لكل شريحة + mirsam-carousel.json (الترتيب والنصوص)</li>
-            <li>حركة: WebM (VP9) بتلاشٍ بين الشرائح بدقة التصميم</li>
             <li>محتوى: خطة نشر Markdown لكل شريحة</li>
+            <li>وسائط موضعية: صورة داخل إطار التصميم + رمز QR مضمّن في كل صيغة</li>
             <li>طباعة/تعديل: أدلة استيراد لكل برنامج مستلم</li>
           </ul>
         </aside>
@@ -450,6 +490,16 @@
             <button id="flatSvg" class="btn" type="button">تنزيل SVG متجهي</button>
             <button id="flatJson" class="btn" type="button">خطة المشروع (JSON)</button>
           </div>
+
+          <span class="mini-title media-space">صيغ متعددة (PDF · PSD · GIF)</span>
+          <div class="row">
+            <button id="exportPdf" class="btn btn-primary" type="button">PDF للطباعة</button>
+            <button id="exportPsd" class="btn btn-primary" type="button">PSD بطبقات (PhotoCraft)</button>
+          </div>
+          <div class="row">
+            <button id="exportGif" class="btn" type="button">GIF متحرّك (الشرائح)</button>
+          </div>
+          <p class="hint">PDF صفحة بنفس نسب التصميم بخط مضمّن داخل الملف · PSD طبقة لكل عنصر (يُفتح في PhotoCraft/Photoshop قابلًا للتعديل) · GIF تلاشٍ ناعم بين شرائح الكاروسيل — كلها مبنيّة على مكتبات مفتوحة المصدر مُنزَّلة محليًا في <code>vendor/</code> بلا أي نداء شبكة.</p>
           <p class="hint">كل حزمة تحتوي: مانيفست الطبقات (أسامٍ، ترتيب، نص، خط، لون) + SVG بمجموعة لكل طبقة + دليل استيراد داخل البرنامج. الفريمات (المقاس/الإطارات/المدة) موثّقة في نفس الخطة.</p>
         </div>
         <aside class="pane-side">
@@ -526,11 +576,15 @@
   <p>مبني على مبادئ تصميم قابلة للقياس: تسلسل بصري، تباين WCAG، شبكة وهوامش، لون ٦٠-٣٠-١٠، وقواعد الخط العربي.</p>
 </footer>
 
-<script src="knowledge.js?v=4"></script>
-<script src="export.js?v=4"></script>
-<script src="app.js?v=4"></script>
-<script src="carousel.js?v=4"></script>
-<script src="inspector.js?v=4"></script>
-<script src="studio.js?v=4"></script>
+<script src="vendor/pdf-lib.min.js?v=9"></script>
+<script src="vendor/ag-psd.js?v=9"></script>
+<script src="vendor/gif.js?v=9"></script>
+<script src="vendor/qrcode.js?v=9"></script>
+<script src="knowledge.js?v=9"></script>
+<script src="export.js?v=9"></script>
+<script src="app.js?v=9"></script>
+<script src="carousel.js?v=9"></script>
+<script src="inspector.js?v=9"></script>
+<script src="studio.js?v=9"></script>
 </body>
 </html>

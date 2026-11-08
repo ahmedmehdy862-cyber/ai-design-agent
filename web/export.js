@@ -89,7 +89,7 @@ function buildProject(plan, opts = {}) {
     opacity: el.opacity != null ? el.opacity : 1,
     fill: el.grad ? `gradient:${el.grad[0]}→${el.grad[1]}` : (el.fill || el.stroke || null),
     rect: el.rect ? el.rect.map(v => Math.round(v * scale)) : null,
-    text: el.kind === 'type' ? el.text : null,
+    text: el.kind === 'type' ? el.text : (el.kind === 'qr' ? el.data : null),
     font: el.kind === 'type' ? `${el.font} ${el.weight} ${el.size}px` : null,
     color: el.kind === 'type' ? el.color : null,
     align: el.align || null,
@@ -110,6 +110,13 @@ function buildProject(plan, opts = {}) {
     },
     palette: plan.palette,
     meta: plan.meta,
+    media: {
+      frameSlot: plan.meta.frame || null,
+      qrPx: plan.meta.qr || 0,
+      note: (plan.meta.frame || plan.meta.qr)
+        ? 'الصورة مضمّنة داخل إطارها (data URL في SVG/PSD) — ورمز QR مرسوم من وحداته الأصلية'
+        : 'لا وسائط موضعية في هذا التصميم'
+    },
     typeScale: plan.typeScale,
     grid: plan.grid,
     focal: plan.focal,
@@ -131,7 +138,8 @@ function buildLayeredSVG(plan) {
   const [W, H] = plan.canvas;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- مِرسم — layered export. Every <g> is one design layer, in z-order. -->
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
      width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <title>مِرسم ${W}×${H} — ${esc(plan.meta.genreName || plan.meta.composition)}</title>
   <rect id="layer-00-background" width="${W}" height="${H}" fill="${plan.palette.bg}"/>
@@ -244,4 +252,182 @@ async function exportForProgram(program, plan, canvas, opts = {}) {
   downloadText(`GUIDE-${program}.txt`, EXPORT_GUIDES[def.guide] || 'انظر docs/COMPATIBILITY.md');
   files.push(`GUIDE-${program}.txt`);
   return files;
+}
+
+/* =========================================================================
+   format exporters — PDF · PSD · GIF · (QR ships inside the design)
+   Three open-source libraries vendored in web/vendor/ (no CDN at runtime):
+   pdf-lib (Apache-2.0) · ag-psd (MIT) · gif.js (WTFPL/MIT) · qrcode-generator (MIT)
+   Each builder returns {name, blob} so the UI downloads once and tests can
+   read the bytes without touching the downloads folder.
+   ========================================================================= */
+
+function dataURLToBytes(dataURL) {
+  const bin = atob(String(dataURL).split(',')[1] || '');
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* rasterise at a target scale — the vector is re-rendered, never upscaled */
+async function renderAt(plan, scale, canvas) {
+  const [w0, h0] = plan.canvas;
+  if (scale === 1 && canvas) return canvas;
+  const W = Math.round(w0 * scale), H = Math.round(h0 * scale);
+  const svg = renderSVG(plan).replace(`width="${w0}" height="${h0}"`, `width="${W}" height="${H}"`);
+  return await finish(await svgToCanvas(svg, W, H), plan);
+}
+
+/* one element as a transparent PNG at a target scale */
+async function layerPNGAt(plan, index, scale = 1) {
+  const [W, H] = plan.canvas;
+  const svg = renderSVG(plan, { transparent: true, only: index });
+  if (scale === 1) return await svgToCanvas(svg, W, H);
+  const SW = Math.round(W * scale), SH = Math.round(H * scale);
+  return await svgToCanvas(
+    svg.replace(`width="${W}" height="${H}"`, `width="${SW}" height="${SH}"`), SW, SH);
+}
+
+/* ---------- PDF (print) ---------- */
+async function buildPDF(plan, canvas, opts = {}) {
+  if (typeof PDFLib === 'undefined') {
+    throw new Error('مكتبة PDF غير محمّلة — تحقق من vendor/pdf-lib.min.js في index.html');
+  }
+  const scale = Number(opts.scale) || 1;
+  const [w0, h0] = plan.canvas;
+  const src = await renderAt(plan, scale, canvas);
+
+  const pdf = await PDFLib.PDFDocument.create();
+  pdf.setTitle(`مِرسم — ${plan.meta.genreName || plan.meta.composition || 'تصميم'}`);
+  pdf.setCreator('مِرسم — استوديو التصميم الإبداعي');
+  pdf.setProducer('mirsam · pdf-lib');
+  const img = await pdf.embedPng(dataURLToBytes(src.toDataURL('image/png')));
+
+  /* 96 CSS px → 72 pt, so the page keeps the design's physical proportions;
+     a 2× export fills the same page with twice the pixels (more DPI) */
+  const pw = w0 * 0.75, ph = h0 * 0.75;
+  const page = pdf.addPage([pw, ph]);
+  page.drawImage(img, { x: 0, y: 0, width: pw, height: ph });
+  page.setMediaBox(0, 0, pw, ph);
+
+  const bytes = await pdf.save();
+  const suffix = scale !== 1 ? `-${scale}x` : '';
+  return {
+    name: `mirsam-${w0}x${h0}${suffix}.pdf`,
+    blob: new Blob([bytes], { type: 'application/pdf' })
+  };
+}
+
+/* ---------- PSD with real layers (opens in PhotoCraft / Photoshop) ---------- */
+async function buildPSD(plan, canvas, opts = {}) {
+  if (typeof agPsd === 'undefined') {
+    throw new Error('مكتبة ag-psd غير محمّلة — تحقق من vendor/ag-psd.js في index.html');
+  }
+  const scale = Number(opts.scale) || 1;
+  const [w0, h0] = plan.canvas;
+  const W = Math.round(w0 * scale), H = Math.round(h0 * scale);
+  const composite = (scale === 1 && canvas) ? canvas : await renderAt(plan, scale, canvas);
+
+  /* one pixel layer per visible element, topmost first (Photoshop order) */
+  const children = [];
+  for (let i = plan.elements.length - 1; i >= 0; i--) {
+    const el = plan.elements[i];
+    if (el.hidden) continue;
+    const lc = await layerPNGAt(plan, i, scale);
+    children.push({
+      name: `${String(i + 1).padStart(2, '0')} ${el.role}`,
+      canvas: lc,
+      opacity: el.opacity != null ? el.opacity : 1,
+      hidden: false,
+      blendMode: 'normal'
+    });
+  }
+  /* the base colour lives as its own layer in every mِرسم design */
+  const bg = document.createElement('canvas');
+  bg.width = W; bg.height = H;
+  const bctx = bg.getContext('2d');
+  bctx.fillStyle = plan.palette.bg;
+  bctx.fillRect(0, 0, W, H);
+  children.push({ name: '00 background', canvas: bg, opacity: 1, hidden: false, blendMode: 'normal' });
+
+  /* Layer order verified empirically against PhotoCraft: the record written
+     last renders on top. The array is built top-down (topmost element first,
+     background last) so reversing it yields the correct bottom-up stack:
+     background at the bottom, the last plan element on top. */
+  children.reverse();
+
+  const psd = {
+    width: W, height: H, channels: 3, depth: 8, bitsPerChannel: 8,
+    children,
+    canvas: composite
+  };
+  const buf = agPsd.writePsd(psd, { generateThumbnail: true });
+  const suffix = scale !== 1 ? `-${scale}x` : '';
+  return {
+    name: `mirsam-${w0}x${h0}${suffix}.psd`,
+    blob: new Blob([buf], { type: 'image/vnd.adobe.photoshop' })
+  };
+}
+
+/* ---------- GIF from the carousel (hold → cross-fade → hold) ---------- */
+async function gifFrameList(canvas, plan) {
+  const useSlides = typeof slides !== 'undefined' && slides.length > 1
+    && typeof slideBrief === 'function' && typeof runLoop === 'function';
+  if (!useSlides) return [{ canvas, bg: plan.palette.bg }];
+  if (typeof captureSlide === 'function') captureSlide();
+  const out = [];
+  for (const s of slides) {
+    /* eslint-disable-next-line no-await-in-loop */
+    const res = await runLoop(slideBrief(s));
+    out.push({ canvas: res.canvas, bg: res.plan.palette.bg });
+  }
+  return out;
+}
+
+async function buildGIF(plan, canvas, opts = {}, onProgress) {
+  if (typeof GIF === 'undefined') {
+    throw new Error('مكتبة gif.js غير محمّلة — تحقق من vendor/gif.js و vendor/gif.worker.js');
+  }
+  const list = await gifFrameList(canvas, plan);
+  const gw = Math.min(560, plan.canvas[0]);
+  const gh = Math.round(plan.canvas[1] * (gw / plan.canvas[0]));
+  const cv = document.createElement('canvas');
+  cv.width = gw; cv.height = gh;
+  const ctx = cv.getContext('2d');
+
+  const gif = new GIF({
+    workers: 2, quality: 9, width: gw, height: gh,
+    workerScript: 'vendor/gif.worker.js'
+  });
+
+  const draw = (a, b, alpha) => {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = a.bg;
+    ctx.fillRect(0, 0, gw, gh);
+    ctx.drawImage(a.canvas, 0, 0, gw, gh);
+    if (b) {
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(b.canvas, 0, 0, gw, gh);
+      ctx.globalAlpha = 1;
+    }
+  };
+
+  for (let i = 0; i < list.length; i++) {
+    draw(list[i]);
+    gif.addFrame(ctx, { copy: true, delay: 1100 });
+    if (i < list.length - 1) {
+      for (let s = 1; s <= 5; s++) {
+        draw(list[i], list[i + 1], s / 6);
+        gif.addFrame(ctx, { copy: true, delay: 60 });
+      }
+    }
+  }
+
+  if (typeof onProgress === 'function') gif.on('progress', p => onProgress(p));
+  const blob = await new Promise((resolve, reject) => {
+    gif.on('finished', resolve);
+    try { gif.render(); } catch (e) { reject(e); }
+  });
+  if (!blob || !blob.size) throw new Error('لم يُنتج أي إطار GIF');
+  return { name: `mirsam-${list.length > 1 ? 'slides' : 'design'}-${gw}px.gif`, blob };
 }

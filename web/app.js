@@ -87,6 +87,12 @@ function makePlan(b) {
   /* global vertical rhythm between text blocks (60%–220% of the design default) */
   const sp = clamp((b.spacing != null ? b.spacing : 100) / 100, 0.6, 2.2);
 
+  /* ---- placed media: image frame + QR (media panel, persisted) ---- */
+  const frame = mediaStore.frame ? frameRectFor(mediaStore.frame.slot || 'left-panel', W, H) : null;
+  const frameTopBand = frame && frame[1] === 0 && frame[2] === W ? frame[3] : 0;
+  const frameBottomBand = frame && frame[1] > 0 && frame[2] === W ? frame[1] : 0;
+  const qrSize = mediaStore.qr && mediaStore.qr.text ? snap(Math.max(96, short * 0.15)) : 0;
+
   /* ---- palette ---- */
   const bg = isLight ? '#F4F1EA' : b.primary;
   const ink = readableInk(bg);
@@ -108,7 +114,13 @@ function makePlan(b) {
   const weight = b.weight || 700;
 
   /* ---- shared blocks ---- */
-  const textW = comp === 'split' ? W - Math.round(W * 0.34) - m * 2 : W - m * 2;
+  let textW = comp === 'split' ? W - Math.round(W * 0.34) - m * 2 : W - m * 2;
+  /* a frame on the left owns that strip: every text block stops before it */
+  if (frame && frame[0] === 0 && frame[2] < W) {
+    textW = Math.max(160, (W - m) - (frame[2] + m));
+  }
+  /* the QR sits bottom-left: list lines shorten so nothing hides under it */
+  const itemsW = qrSize ? Math.max(120, textW - qrSize - Math.round(m * 0.4)) : textW;
 
   let focal, elements = [], headlineY, decorAnchor;
 
@@ -151,21 +163,65 @@ function makePlan(b) {
     headlineY = Math.round(H * genre.focalRatio);
   }
 
-  /* ---- decoration ---- */
-  elements.push(...decor(b.decor, decorAnchor));
+  /* the frame owns its band: text starts under a top band, and flows up
+     from the top margin under a bottom band (nothing prints over the photo) */
+  if (frameTopBand) {
+    headlineY = Math.max(headlineY, frameTopBand + Math.round(m * 0.5) + Math.round(headPt * 1.1));
+    focal = { ...focal, y: headlineY };
+  } else if (frameBottomBand) {
+    const topClear = (b.kicker && !genre.badge) ? m + Math.round(kickerPt * 1.7)
+      : (genre.badge ? m + Math.round(kickerPt * 2.8) : m);
+    headlineY = Math.min(headlineY, topClear + Math.round(headPt * 1.15));
+    focal = { ...focal, y: headlineY };
+  }
 
-  /* ---- kicker + rule ---- */
+  /* ---- decoration (the picture wins: decoration never sits under the frame) ---- */
+  /* the anchor itself steps out of the picture first — otherwise a frame that
+     owns the anchor zone would delete the whole ornament; the intersection
+     filter below stays as the final guarantee */
+  if (frame && decorAnchor) {
+    const a = decorAnchor;
+    const half = a.size * 1.6;                    /* spread of the ornament */
+    const cands = [
+      { x: frame[0] + frame[2] + half + m, y: a.y },   /* right of the frame */
+      { x: frame[0] - half - m, y: a.y },               /* left of it */
+      { x: a.x, y: frame[1] + frame[3] + half + m },    /* below it */
+      { x: a.x, y: frame[1] - half - m }                /* above it */
+    ];
+    const inCanvas = p => p.x > 0 && p.x < W && p.y > 0 && p.y < H;
+    const freeOf = p => !overlaps([p.x - half, p.y - half, half * 2, half * 2], frame);
+    const pick = cands.find(p => inCanvas(p) && freeOf(p)) || cands.find(freeOf);
+    if (pick) decorAnchor = Object.assign({}, a, { x: Math.round(pick.x), y: Math.round(pick.y) });
+  }
+  const deco = decor(b.decor, decorAnchor);
+  elements.push(...(frame ? deco.filter(d => {
+    const bb = mediaBBox(d);
+    return !(bb && overlaps(bb, frame));
+  }) : deco));
+
+  /* ---- the image frame itself: behind every word, above the colour panels ---- */
+  if (frame) {
+    elements.push({
+      role: 'image-frame', kind: 'imageFrame', rect: frame,
+      src: mediaStore.frame.src, fit: mediaStore.frame.fit || 'cover',
+      radius: mediaStore.frame.radius || 0,
+      fill: '#0B1218', opacity: 1, bleed: true
+    });
+  }
+
+  /* ---- kicker + rule (topY follows a top-band frame) ---- */
   const right = W - m;
+  const topY = frameTopBand ? frameTopBand + Math.round(m * 0.5) : m;
   if (b.kicker && !genre.badge) {
     elements.push({
-      role: 'kicker', kind: 'type', x: right, y: m + kickerPt, text: b.kicker,
+      role: 'kicker', kind: 'type', x: right, y: topY + kickerPt, text: b.kicker,
       align: 'right', font: b.font, size: kickerPt, color: accent,
-      weight: 700, leading: Math.round(kickerPt * 1.4)
+      weight: 700, leading: Math.round(kickerPt * 1.4), maxW: textW
     });
     elements.push({
       role: 'kicker-rule', kind: 'line',
-      x1: right - Math.round(W * 0.12), y1: m + kickerPt + Math.round(kickerPt * 0.7),
-      x2: right, y2: m + kickerPt + Math.round(kickerPt * 0.7),
+      x1: right - Math.round(W * 0.12), y1: topY + kickerPt + Math.round(kickerPt * 0.7),
+      x2: right, y2: topY + kickerPt + Math.round(kickerPt * 0.7),
       stroke: accent, width: Math.max(2, Math.round(short * 0.004))
     });
   }
@@ -193,10 +249,11 @@ function makePlan(b) {
   }
 
   /* ---- CTA ---- */
+  let chipY = null;                     /* also read by the list clip below */
   if (b.cta) {
     const chipH = Math.round(ctaPt * 2.6);
     const chipW = Math.round(Math.min(W * 0.40, textW));
-    const chipY = comp === 'split' ? H - m - chipH : H - m - chipH;
+    chipY = (frameBottomBand ? frameBottomBand - m : H - m) - chipH;
     elements.push({
       role: 'cta-chip', kind: 'roundedRect', rect: [right - chipW, chipY, chipW, chipH],
       radii: shapeRadius(shapeId, chipH), fill: accent, bleed: false,
@@ -235,20 +292,27 @@ function makePlan(b) {
     cursor += Math.round(datePt * 1.9 * sp);
   }
 
-  let itemLead = 0, itemSize = 0;
+  let itemLead = 0, itemSize = 0, itemsShown = 0;
   if (b.items && b.items.length) {
     const itemPt = even(clamp(subPt * 0.95, 15, 36));
     itemSize = itemPt;
     itemLead = Math.round(itemPt * 1.95 * sp);
-    b.items.slice(0, 5).forEach((it, i) => {
+    let maxItems = 5;
+    if (frameBottomBand) {
+      /* keep the list above the photo (and above the CTA when there is one) */
+      const limit = (chipY != null) ? chipY - Math.round(m * 0.4) : frameBottomBand - m;
+      maxItems = clamp(Math.floor((limit - cursor) / itemLead), 0, 5);
+    }
+    itemsShown = Math.min(maxItems, b.items.length);
+    b.items.slice(0, maxItems).forEach((it, i) => {
       elements.push({
         role: 'item', kind: 'type', x: right, y: cursor + i * itemLead, text: '•  ' + it,
         align: 'right', font: b.font, size: itemPt,
         color: contrast(ink, bg) >= 4.5 ? ink : readableInk(bg), weight: 400,
-        opacity: 0.92, leading: itemLead, maxW: textW
+        opacity: 0.92, leading: itemLead, maxW: itemsW
       });
     });
-    cursor += b.items.length * itemLead;
+    cursor += maxItems * itemLead;
   }
 
   if (genre.badge) {
@@ -278,6 +342,14 @@ function makePlan(b) {
   ['date', datePt], ['item', itemSize], ['cta', b.cta ? ctaPt : 0]]
     .filter(x => x[1]);
 
+  /* ---- QR code: always bottom-left (never under the CTA/badge), on top ---- */
+  if (qrSize) {
+    elements.push({
+      role: 'qr', kind: 'qr', rect: [m, H - m - qrSize, qrSize, qrSize],
+      data: mediaStore.qr.text, fill: '#111111', bg: '#FFFFFF', bleed: false
+    });
+  }
+
   /* stable element keys (role or role#index) → the inspector's address book,
      then re-apply every user edit on top of the freshly computed plan */
   const keyCount = {};
@@ -297,6 +369,7 @@ function makePlan(b) {
       weight, harmony: b.harmony || 'manual', grain: !!b.grain, bleed: !!b.bleed,
       genre: genre.id, genreName: genre.name, shape: shapeId,
       date: b.date || '', items: (b.items || []).length,
+      itemsShown, frame: frame ? (mediaStore.frame.slot || 'left-panel') : '', qr: qrSize || 0,
       font: b.font, spacing: Math.round(sp * 100),
       edited: Object.keys(overrides).length
     },
@@ -315,7 +388,12 @@ function makePlan(b) {
       `تباين العنوان ${contrast(headInk, bg).toFixed(2)}:1 مقابل ${bg}`,
       `تكوين «${comp}» — نقطة تركيز عند ${Math.round(focal.y / H * 100)}٪ من الارتفاع`,
       b.harmony === 'manual' ? 'باليتة يدوية: مهيمن + ثانوي + لمسة (٦٠-٣٠-١٠)' : `اشتقاق ${b.harmony}: اللمسة مشتقّة من المهيمن بتباعد ${b.harmony === 'complement' ? 180 : 34}°`,
-      b.grain ? 'طبقة تشطيب: حبيبات ٣٪ بعد القياس (لا تغيّر القرار)' : 'بدون طبقة تشطيب — SVG نظيف'
+      b.grain ? 'طبقة تشطيب: حبيبات ٣٪ بعد القياس (لا تغيّر القرار)' : 'بدون طبقة تشطيب — SVG نظيف',
+      ...(frame ? [`إطار صورة: ${FRAME_SLOTS[mediaStore.frame.slot || 'left-panel']} — الصورة تُقصّ داخله وهي طبقة full-bleed، والزخرفة تنحني عنده`] : []),
+      ...(qrSize ? [`رمز QR بحجم ${arNumLocal(qrSize)}px أسفل اليسار مع منطقة هدوء بيضاء داخل الصندوق`] : []),
+      ...(itemsShown < (b.items || []).length
+        ? [`الشريط السفلي يقتطع القائمة: عُرض ${arNumLocal(itemsShown)} من ${arNumLocal(b.items.length)} بنودًا — غيّر موضع الإطار لاستعادة الباقي`]
+        : [])
     ]
   };
 }
@@ -447,6 +525,46 @@ function renderSVG(plan, opts = {}) {
     } else if (el.kind === 'line') {
       body += `<line x1="${el.x1}" y1="${el.y1}" x2="${el.x2}" y2="${el.y2}" stroke="${stroke}"`
         + ` stroke-width="${el.width}" stroke-linecap="round"${op}/>`;
+    } else if (el.kind === 'imageFrame') {
+      /* a frame the designer drops a photo into: clip + fitted <image>.
+         The data URL is inline, so the SVG stays a single self-contained
+         file and still rasterises for PNG/PDF/PSD export. */
+      const [x, y, w, h] = el.rect;
+      const cid = 'frameClip' + i;
+      const rx = el.radius || 0;
+      defs += `<clipPath id="${cid}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}"/></clipPath>`;
+      body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}"${op}/>`;
+      if (el.src) {
+        const par = el.fit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice';
+        const src = esc(el.src);
+        body += `<image href="${src}" xlink:href="${src}" x="${x}" y="${y}" width="${w}" height="${h}"`
+          + ` preserveAspectRatio="${par}" clip-path="url(#${cid})"${op}/>`;
+      }
+      if (el.stroke) {
+        body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="none"`
+          + ` stroke="${el.stroke}" stroke-width="${Math.max(2, Math.round(Math.min(w, h) * 0.012))}"${op}/>`;
+      }
+    } else if (el.kind === 'qr') {
+      /* QR built from real modules: crisp at any scale, no image dependency */
+      const [x, y, w, h] = el.rect;
+      body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${el.bg || '#FFFFFF'}"${op}/>`;
+      let q = null;
+      try { q = qrMatrix(el.data || ''); } catch { q = null; }
+      if (q) {
+        const n = q.getModuleCount();
+        const quiet = Math.round(w * 0.06);        /* quiet zone (scanners need it) */
+        const cell = (w - quiet * 2) / n;
+        let d = '';
+        for (let r = 0; r < n; r++) {
+          for (let c = 0; c < n; c++) {
+            if (!q.isDark(r, c)) continue;
+            const cx = (x + quiet + c * cell).toFixed(2);
+            const cy = (y + quiet + r * cell).toFixed(2);
+            d += `M${cx} ${cy}h${cell.toFixed(2)}v${cell.toFixed(2)}h${(-cell).toFixed(2)}z`;
+          }
+        }
+        body += `<path d="${d}" fill="${fill || el.fill || '#111111'}"${op}/>`;
+      }
     } else if (el.kind === 'type') {
       const maxW = el.maxW || (W - margin * 2);
       const lines = wrapLines(el.text, maxW, el.font, el.size, el.weight);
@@ -474,7 +592,8 @@ function renderSVG(plan, opts = {}) {
     }
   });
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"`
+    + ` width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
     + (defs ? `<defs>${defs}</defs>` : '') + body + '</svg>';
 }
 
@@ -850,6 +969,128 @@ function loadOverrides() {
   } catch { /* corrupt value — start clean */ }
 }
 loadOverrides();
+
+/* =========================================================================
+   placed media — an image frame and a QR code inside the design.
+   Same contract as overrides: saved in localStorage (same origin, layout
+   values + one downscaled data URL; never leaves the browser) and re-applied
+   on every plan build, so both survive regeneration, presets and QA fixes.
+   ========================================================================= */
+const mediaStore = { frame: null, qr: null };
+const FRAME_SLOTS = {
+  'left-panel': 'لوح جانبي (يسار)',
+  'top-band': 'شريط علوي',
+  'bottom-band': 'شريط سفلي',
+  'corner': 'مربّع الزاوية العليا'
+};
+
+function saveMedia() {
+  try {
+    if (mediaStore.frame) localStorage.setItem('mirsam.frame', JSON.stringify(mediaStore.frame));
+    else localStorage.removeItem('mirsam.frame');
+    if (mediaStore.qr) localStorage.setItem('mirsam.qr', JSON.stringify(mediaStore.qr));
+    else localStorage.removeItem('mirsam.qr');
+  } catch { /* storage full — the asset stays for this session only */ }
+}
+function loadMedia() {
+  try {
+    const v = JSON.parse(localStorage.getItem('mirsam.frame') || 'null');
+    if (v && v.src) mediaStore.frame = v;
+  } catch { /* corrupt — start without a frame */ }
+  try {
+    const v = JSON.parse(localStorage.getItem('mirsam.qr') || 'null');
+    if (v && v.text) mediaStore.qr = v;
+  } catch { /* corrupt — start without a code */ }
+}
+loadMedia();
+
+/* frame geometry per slot. Every slot touches an edge, so the frame is a
+   bleed layer: the edge-spill check reports NOTE instead of WARN. */
+function frameRectFor(slot, W, H) {
+  if (slot === 'top-band') return [0, 0, W, Math.round(H * 0.30)];
+  if (slot === 'bottom-band') { const h = Math.round(H * 0.28); return [0, H - h, W, h]; }
+  if (slot === 'corner') { const s = Math.round(Math.min(W, H) * 0.34); return [0, 0, s, s]; }
+  return [0, 0, Math.round(W * 0.42), H];          /* left-panel (default) */
+}
+
+/* bbox used to keep decoration out of the picture */
+function mediaBBox(el) {
+  if (el.rect) return el.rect;
+  if (el.kind === 'ring') return [el.cx - el.r, el.cy - el.r, el.r * 2, el.r * 2];
+  if (el.kind === 'line') return [Math.min(el.x1, el.x2), Math.min(el.y1, el.y2),
+    Math.max(1, Math.abs(el.x2 - el.x1)), Math.max(1, Math.abs(el.y2 - el.y1))];
+  return null;
+}
+function overlaps(a, b) {
+  return a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1];
+}
+
+/* upload: read the file → downscale → data URL (keeps localStorage small) */
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('تعذّرت قراءة الملف'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1400;
+        const k = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * k));
+        const h = Math.max(1, Math.round(img.height * k));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const x = c.getContext('2d');
+        x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+        x.drawImage(img, 0, 0, w, h);
+        /* PNG keeps transparency only when it is small enough to store */
+        const keepPng = file.type === 'image/png' && w * h <= 900000;
+        resolve(c.toDataURL(keepPng ? 'image/png' : 'image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('تعذّرت قراءة الصورة — جرّب PNG أو JPEG'));
+      img.src = String(fr.result);
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+async function addFrameImage(file, opts = {}) {
+  const src = await readImageFile(file);
+  mediaStore.frame = Object.assign({ slot: 'left-panel', fit: 'cover' },
+    mediaStore.frame || {}, opts, { src });
+  saveMedia();
+  return mediaStore.frame;
+}
+function patchFrame(patch) {
+  if (!mediaStore.frame) return false;
+  Object.assign(mediaStore.frame, patch);
+  saveMedia();
+  return true;
+}
+function clearFrame() { mediaStore.frame = null; saveMedia(); }
+
+/* QR — validated at input time so a bad code never reaches the canvas */
+function qrMatrix(text) {
+  if (typeof qrcode === 'undefined') throw new Error('مكتبة الرموز غير محمّلة (vendor/qrcode.js)');
+  const q = qrcode(0, 'M');
+  q.addData(String(text));
+  q.make();
+  return q;
+}
+function setQR(text) {
+  const t = String(text || '').trim();
+  if (!t) { mediaStore.qr = null; saveMedia(); return null; }
+  try { qrMatrix(t); }
+  catch (e) {
+    /* qrcode-generator throws plain strings, not Error objects */
+    const raw = (e && e.message) || String(e || 'خطأ غير معروف');
+    throw new Error(/too long|overflow|code length|length over/i.test(raw)
+      ? 'النص طويل جدًا للرموز — اختصر الرابط' : raw);
+  }
+  mediaStore.qr = Object.assign({}, mediaStore.qr, { text: t });
+  saveMedia();
+  return mediaStore.qr;
+}
+function clearQR() { mediaStore.qr = null; saveMedia(); }
 
 function briefFromUI() {
   const [w, h] = $('size').value.split('x').map(Number);

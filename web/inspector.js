@@ -25,12 +25,15 @@ const ROLE_NAMES = {
   'accent-panel': 'اللوح اللوني',
   'accent-band': 'الشريط اللوني',
   'focal-deco': 'الزخرفة',
-  'trim-frame': 'إطار القصّ'
+  'trim-frame': 'إطار القصّ',
+  'image-frame': 'إطار الصورة',
+  qr: 'رمز QR'
 };
 
 const KIND_NAMES = {
   type: 'نص', rect: 'مستطيل', roundedRect: 'مستطيل مدوّر', ellipse: 'قرص',
-  ring: 'حلقة', line: 'خط', outline: 'إطار'
+  ring: 'حلقة', line: 'خط', outline: 'إطار',
+  imageFrame: 'إطار صورة', qr: 'رمز QR'
 };
 
 const KIND_COLORS = ['rect', 'roundedRect', 'ellipse'];
@@ -97,6 +100,9 @@ function layerRow(el) {
   const weight = o.weight || el.weight || 700;
   const align = o.align || el.align || 'right';
 
+  const isFrame = el.kind === 'imageFrame';
+  const isQR = el.kind === 'qr';
+
   const sizeCtl = isType ? `
       <label class="lay-ctl" title="حجم النص بالنسبة لحجم التصميم">
         <span>الحجم</span>
@@ -113,8 +119,48 @@ function layerRow(el) {
         <button type="button" data-act="align" data-align="right" class="${align === 'right' ? 'on' : ''}">يمين</button>
         <button type="button" data-act="align" data-align="center" class="${align === 'center' ? 'on' : ''}">وسط</button>
         <button type="button" data-act="align" data-align="left" class="${align === 'left' ? 'on' : ''}">يسار</button>
-      </div>` : `
+      </div>` : (isFrame || isQR) ? '' : `
       <span class="lay-note">${KIND_NAMES[el.kind] || el.kind}${el.bleed ? ' · full-bleed' : ''}</span>`;
+
+  /* frame / QR rows carry their own controls instead of a colour swatch */
+  const mediaCtl = isFrame ? `
+      <label class="lay-ctl" title="موضع الإطار داخل التصميم">
+        <span>الموضع</span>
+        <select data-act="frameSlot">
+          ${Object.keys(FRAME_SLOTS).map(k =>
+            `<option value="${k}"${(mediaStore.frame && (mediaStore.frame.slot || 'left-panel') === k) ? ' selected' : ''}>${FRAME_SLOTS[k]}</option>`).join('')}
+        </select>
+      </label>
+      <label class="lay-ctl" title="كيف تُملأ الصورة داخل الإطار">
+        <span>الملء</span>
+        <select data-act="frameFit">
+          <option value="cover"${mediaStore.frame && mediaStore.frame.fit === 'contain' ? '' : ' selected'}>قصّ (ملء الإطار)</option>
+          <option value="contain"${mediaStore.frame && mediaStore.frame.fit === 'contain' ? ' selected' : ''}>احتواء (إظهار كاملة)</option>
+        </select>
+      </label>
+      <label class="lay-ctl lay-file" title="استبدال الصورة من جهازك">
+        <span>الصورة</span>
+        <input type="file" data-act="frameFile" accept="image/*">
+      </label>` : isQR ? `
+      <label class="lay-ctl lay-qr" title="محتوى الرمز (رابط أو نص قصير)">
+        <span>المحتوى</span>
+        <input type="text" data-act="qrText" dir="ltr" value="${esc(el.data || '')}">
+      </label>
+      <label class="lay-ctl lay-color" title="لون وحدات الرمز">
+        <span>اللون</span>
+        <input type="color" data-act="color" value="${color}">
+        <b class="lay-num" dir="ltr">${color}</b>
+      </label>` : '';
+
+  const colorCtl = (isFrame || isQR) ? '' : `
+      <label class="lay-ctl lay-color" title="لون العنصر">
+        <span>اللون</span>
+        <input type="color" data-act="color" value="${color}">
+        <b class="lay-num" dir="ltr">${color}</b>
+      </label>`;
+
+  const noteCtl = (isFrame || isQR)
+    ? `<span class="lay-note">${KIND_NAMES[el.kind] || el.kind}${el.bleed ? ' · full-bleed' : ''}</span>` : '';
 
   return `
   <div class="layer${o.hidden ? ' off' : ''}${selectedKey === el.key ? ' sel' : ''}" data-key="${esc(el.key)}" tabindex="0"
@@ -126,17 +172,15 @@ function layerRow(el) {
       <button type="button" class="lay-reset" data-act="reset" title="إعادة هذا العنصر وحده">↺</button>
     </div>
     <div class="lay-body">
-      <label class="lay-ctl lay-color" title="لون العنصر">
-        <span>اللون</span>
-        <input type="color" data-act="color" value="${color}">
-        <b class="lay-num" dir="ltr">${color}</b>
-      </label>
+      ${colorCtl}
+      ${mediaCtl}
       <label class="lay-ctl" title="شفافية العنصر">
         <span>الشفافية</span>
         <input type="range" data-act="opacity" min="0" max="100" step="1" value="${op}">
         <b class="lay-num">${arNum(op)}٪</b>
       </label>
       ${sizeCtl}
+      ${noteCtl}
     </div>
   </div>`;
 }
@@ -223,8 +267,42 @@ function bindInspector() {
   box.addEventListener('change', e => {
     const t = e.target;
     const row = t.closest('.layer');
-    if (!row || t.dataset.act !== 'weight') return;
-    setOverride(row.dataset.key, { weight: Number(t.value) }, 'الوزن');
+    if (!row || !t.dataset.act) return;
+    const act = t.dataset.act;
+
+    if (act === 'weight') { setOverride(row.dataset.key, { weight: Number(t.value) }, 'الوزن'); return; }
+
+    /* placed media edits change the plan itself, not an override */
+    if (act === 'frameSlot') {
+      if (patchFrame({ slot: t.value })) { inspStatus('حُدِّث موضع الإطار — الصورة والنص أُعيد توزيعهما', 'ok'); generate(); }
+      else inspStatus('ارفع صورة إلى الإطار أولًا', '');
+      return;
+    }
+    if (act === 'frameFit') {
+      if (patchFrame({ fit: t.value })) { inspStatus('حُدِّط ملء الصورة داخل الإطار', 'ok'); generate(); }
+      return;
+    }
+    if (act === 'frameFile') {
+      const f = t.files && t.files[0];
+      if (!f) return;
+      addFrameImage(f).then(() => {
+        renderLayers(true);
+        inspStatus('استُبدلت صورة الإطار', 'ok');
+        generate();
+      }).catch(err => inspStatus('تعذّر: ' + err.message, 'err'));
+      return;
+    }
+    if (act === 'qrText') {
+      try {
+        const r = setQR(t.value);
+        inspStatus(r ? 'حُدِّث محتوى رمز QR' : 'أُزيل رمز QR من التصميم', 'ok');
+      } catch (err) {
+        inspStatus('تعذّر: ' + err.message, 'err');
+      }
+      renderLayers(true);
+      generate();
+      return;
+    }
   });
 
   box.addEventListener('focusin', e => {

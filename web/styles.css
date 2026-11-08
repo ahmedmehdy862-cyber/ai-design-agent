@@ -470,6 +470,26 @@ kbd{
 .media-space{margin-top:16px}
 .pane .file-list li{direction:rtl; text-align:right}
 
+/* file picker dressed as a button (frame upload) */
+.file-btn{display:inline-flex; align-items:center; gap:7px; cursor:pointer; user-select:none}
+.file-btn:hover{filter:brightness(1.08)}
+.file-btn input[type=file]{display:none}
+
+/* inspector rows for the placed media */
+.lay-file input[type=file]{
+  max-width:150px; font-size:11px; color:var(--muted);
+  border:1px dashed var(--line); border-radius:7px; padding:3px 6px; background:#0b0e13;
+}
+.lay-file input[type=file]::file-selector-button{
+  font:inherit; font-size:11px; margin-left:6px; padding:2px 7px; border-radius:6px;
+  border:1px solid var(--line); background:#1a2130; color:var(--text); cursor:pointer;
+}
+.lay-qr input[type=text]{
+  width:132px; padding:4px 7px; font-size:11.5px; border-radius:7px;
+  border:1px solid var(--line); background:#0b0e13; color:var(--text); direction:ltr;
+}
+.lay-qr input[type=text]:focus{border-color:rgba(244,164,23,.55); outline:none}
+
 /* ---------- responsive ---------- */
 @media (max-width:980px){
   .layout{grid-template-columns:1fr}

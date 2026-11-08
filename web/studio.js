@@ -470,3 +470,133 @@ document.addEventListener('DOMContentLoaded', () => {
     mStatus(document.getElementById('carStatus').textContent, 'ok');
   });
 });
+
+/* =========================================================================
+   placed media (image frame + QR) and the multi-format exporters
+   PDF · PSD · GIF — all built locally from web/vendor/ open-source libs
+   ========================================================================= */
+function refreshDesign() {
+  if (typeof renderLayers === 'function') renderLayers(true);
+  return generate();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  /* restore the placed-media controls from localStorage (same origin) */
+  if (mediaStore.frame) {
+    if ($s('frameSlot')) $s('frameSlot').value = mediaStore.frame.slot || 'left-panel';
+    if ($s('frameFit')) $s('frameFit').value = mediaStore.frame.fit || 'cover';
+  }
+  if (mediaStore.qr && $s('qrText')) $s('qrText').value = mediaStore.qr.text || '';
+
+  /* ---- image frame ---- */
+  if ($s('frameFile')) $s('frameFile').addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      mStatus('جارٍ قراءة الصورة وتصغيرها…', 'pending');
+      const fr = await addFrameImage(f, {
+        slot: $s('frameSlot') ? $s('frameSlot').value : 'left-panel',
+        fit: $s('frameFit') ? $s('frameFit').value : 'cover'
+      });
+      await refreshDesign();
+      const [w, h] = lastPlan ? lastPlan.canvas : [0, 0];
+      mStatus(`✔ الصورة داخل الإطار (${FRAME_SLOTS[fr.slot] || fr.slot}) — ${w}×${h} · `
+        + 'محفوظة محليًا وستبقى بعد إعادة التحميل', 'ok');
+    } catch (err) {
+      mStatus('تعذّر: ' + err.message, 'err');
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  if ($s('frameSlot')) $s('frameSlot').addEventListener('change', async e => {
+    if (!patchFrame({ slot: e.target.value })) {
+      mStatus('اختر الصورة أولًا — الموضع يُطبَّق معها', '');
+      return;
+    }
+    await refreshDesign();
+    mStatus(`حُوِّل الإطار إلى: ${FRAME_SLOTS[e.target.value]} — أُعيد توزيع النص والزخرفة`, 'ok');
+  });
+
+  if ($s('frameFit')) $s('frameFit').addEventListener('change', async e => {
+    if (!patchFrame({ fit: e.target.value })) return;
+    await refreshDesign();
+    mStatus(e.target.value === 'contain'
+      ? 'احتواء: الصورة كاملة داخل الإطار (قد تظهر هوامش لونية)' : 'قصّ: ملء الإطار بالصورة', 'ok');
+  });
+
+  if ($s('frameClear')) $s('frameClear').addEventListener('click', async () => {
+    if (!mediaStore.frame) { mStatus('لا يوجد إطار حاليًا', ''); return; }
+    clearFrame();
+    await refreshDesign();
+    mStatus('أُزيل إطار الصورة — عاد التخطيط الأصلي', 'ok');
+  });
+
+  /* ---- QR code ---- */
+  const applyQR = async () => {
+    try {
+      const r = setQR($s('qrText') ? $s('qrText').value : '');
+      await refreshDesign();
+      mStatus(r ? '✔ رمز QR داخل التصميم (أسفل اليسار) — محفوظ محليًا'
+        : 'أُزيل رمز QR', r ? 'ok' : '');
+    } catch (err) {
+      mStatus('تعذّر: ' + err.message, 'err');
+    }
+  };
+  if ($s('qrAdd')) $s('qrAdd').addEventListener('click', applyQR);
+  if ($s('qrText')) $s('qrText').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); applyQR(); }
+  });
+  if ($s('qrClear')) $s('qrClear').addEventListener('click', async () => {
+    clearQR();
+    if ($s('qrText')) $s('qrText').value = '';
+    await refreshDesign();
+    mStatus('أُزيل رمز QR', 'ok');
+  });
+
+  /* ---- multi-format exporters: PDF · PSD · GIF ---- */
+  const outList = (name, note) => {
+    const out = $s('exportOut');
+    if (!out) return;
+    const pending = out.querySelector('.pending');
+    if (pending) pending.remove();
+    out.insertAdjacentHTML('beforeend',
+      `<li>${esc(name)} <span class="done">${esc(note || '')}</span></li>`);
+  };
+
+  const runFormat = async (label, fn) => {
+    if (!lastPlan || !lastCanvas) { mStatus('ولّد التصميم أولًا', 'err'); return; }
+    const btn = $s(label.btn);
+    if (btn) btn.disabled = true;
+    mStatus(label.busy, 'pending');
+    const t0 = performance.now();
+    try {
+      const res = await fn();
+      downloadBlob(res.name, res.blob);
+      const kb = (res.blob.size / 1024).toFixed(0);
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      outList(res.name, `${kb} كيلوبايت · ${secs} ث`);
+      mStatus(`✔ ${label.ok}: ${res.name} (${kb} كيلوبايت · ${secs} ث)`, 'ok');
+    } catch (e) {
+      mStatus(`تعذّر ${label.fail}: ` + e.message, 'err');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  if ($s('exportPdf')) $s('exportPdf').addEventListener('click', () => runFormat(
+    { btn: 'exportPdf', busy: 'جارٍ بناء PDF…', ok: 'PDF جاهز', fail: 'PDF' },
+    () => buildPDF(lastPlan, lastCanvas, { scale: Number($s('exportScale') ? $s('exportScale').value : 1) })
+  ));
+
+  if ($s('exportPsd')) $s('exportPsd').addEventListener('click', () => runFormat(
+    { btn: 'exportPsd', busy: 'جارٍ بناء PSD بطبقات…', ok: 'PSD جاهز', fail: 'PSD' },
+    () => buildPSD(lastPlan, lastCanvas, { scale: Number($s('exportScale') ? $s('exportScale').value : 1) })
+  ));
+
+  if ($s('exportGif')) $s('exportGif').addEventListener('click', () => runFormat(
+    { btn: 'exportGif', busy: 'جارٍ تركيب GIF من الشرائح…', ok: 'GIF جاهز', fail: 'GIF' },
+    () => buildGIF(lastPlan, lastCanvas, {}, p =>
+      mStatus(`تركيب GIF… ${Math.round(p * 100)}٪`, 'pending'))
+  ));
+});
