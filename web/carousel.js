@@ -28,14 +28,65 @@ function captureSlide() {
   slides[slideIndex] = readTexts();
 }
 
+/* P7: layout rotation for the variety mode — composition is the ONE thing
+   allowed to differ; size · palette · genre · font stay shared (continuity) */
+const VARY_COMPS = ['stack', 'split', 'editorial'];
+const COMP_AR = { stack: 'تسلسلي', split: 'تقسيم', editorial: 'تحريري' };
+const compAr = c => COMP_AR[c] || c;
+/* the identity every slide must share — composition is NOT here on purpose */
+const IDENTITY = [['width', 'المقاس'], ['height', 'الارتفاع'], ['genre', 'النوع'], ['font', 'الخط'],
+  ['primary', 'اللون الأساسي'], ['secondary', 'اللون الثانوي'], ['style', 'الأسلوب'], ['shape', 'الشكل']];
+
 /* a slide carries the full brief: shared identity + its own text */
 function slideBrief(s) {
+  const varyOn = typeof document !== 'undefined' && $c('carVary') && $c('carVary').checked;
+  const i = slides.indexOf(s);
+  const vary = varyOn && slides.length > 1 && i >= 0;
   return Object.assign(briefFromUI(), {
     headline: s.headline || 'عنوان',
     subhead: s.subhead || '',
     cta: s.cta || '',
-    kicker: s.kicker || ''
+    kicker: s.kicker || '',
+    ...(vary ? { composition: VARY_COMPS[i % VARY_COMPS.length] } : {})
   });
+}
+
+/* P7: استمرارية الهوية + توزيع المحتوى — state exactly what is: the fields
+   compared are the identity; composition is deliberately excluded because
+   rotating it is what the variety switch is for. */
+function renderCarInfo() {
+  const box = $c('carInfo');
+  if (!box) return;
+  if (slides.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+
+  const briefs = slides.map(s => slideBrief(s));
+  const diff = IDENTITY.filter(([k]) => new Set(briefs.map(b => String(b[k]))).size > 1);
+
+  const comps = briefs.map(b => b.composition);
+  const varied = new Set(comps).size > 1;
+
+  const roles = slides.map((s, i) =>
+    i === 0 ? 'غلاف' : (i === slides.length - 1 ? (s.cta ? 'دعوة ختام' : 'ختام') : 'محتوى'));
+  const tally = [];
+  let run = 1;
+  for (let i = 1; i <= roles.length; i++) {
+    if (i < roles.length && roles[i] === roles[i - 1]) { run++; continue; }
+    tally.push(roles[i - 1] + (run > 1 ? ` ×${arNum(run)}` : ''));
+    run = 1;
+  }
+  const items = (parsedBrief && parsedBrief.items) || [];
+
+  box.innerHTML =
+    (diff.length
+      ? `<div><b class="bad">استمرارية: ${arNum(diff.length)} حقلًا مختلفًا بين الشرائح — ${diff.map(d => d[1]).join(' · ')}</b></div>`
+      : `<div><b class="ok">استمرارية: مقاس ونوع وخط وألوان وشكل موحّدة عبر ${arNum(slides.length)} شرائح</b></div>`)
+    + `<div class="ci-var">التخطيط: ${varied
+      ? `مُنوَّع — ${comps.map(compAr).join(' ← ')} (التغيير الوحيد المسموح)`
+      : `موحّد — ${compAr(comps[0])} في كل الشرائح`}</div>`
+    + `<div>توزيع المحتوى: ${tally.join(' · ')}${items.length
+      ? ` — ${arNum(items.length)} بنودًا + التاريخ في الغلاف والختام فقط`
+      : ''}</div>`;
 }
 
 /* cache key = the whole design input (text + identity + overrides) */
@@ -133,6 +184,7 @@ async function renderStrip() {
     } catch { holder.innerHTML = '<span class="slide-ph">—</span>'; }
   }
   updateSlideTag();
+  renderCarInfo();
 }
 
 /* ---------------- navigation ---------------- */
@@ -249,11 +301,24 @@ async function exportCarousel() {
     }
 
     await delay(200);
+    const briefs = slides.map(s => slideBrief(s));
+    const varyOn = $c('carVary') && $c('carVary').checked;
     const manifest = {
       format: 'mirsam-carousel@1',
       generated: new Date().toISOString(),
       count: slides.length,
       canvas: [W, H],
+      /* P7: what held the set together, stated — not assumed */
+      identity: {
+        genre: briefs[0].genre, font: briefs[0].font, style: briefs[0].style,
+        palette: [briefs[0].primary, briefs[0].secondary],
+        continuous: IDENTITY.every(([k]) => new Set(briefs.map(b => String(b[k]))).size === 1),
+        layout: varyOn ? 'varied: ' + briefs.map(b => b.composition).join(' → ') : briefs[0].composition
+      },
+      distribution: slides.map((s, i) => ({
+        index: i + 1,
+        role: i === 0 ? 'cover' : (i === slides.length - 1 ? (s.cta ? 'closing-cta' : 'closing') : 'body')
+      })),
       order: slides.map((s, i) => ({
         index: i + 1,
         file: `mirsam-carousel-${String(i + 1).padStart(2, '0')}.png`,
@@ -285,6 +350,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if ($c('carDel')) $c('carDel').addEventListener('click', delSlide);
   if ($c('carAuto')) $c('carAuto').addEventListener('click', autoCarousel);
   if ($c('carExport')) $c('carExport').addEventListener('click', exportCarousel);
+
+  /* P7: variety switch — composition rotates, identity never moves */
+  const vary = $c('carVary');
+  if (vary) vary.addEventListener('change', () => {
+    thumbCache.clear();               /* layout changed → old thumbnails lie */
+    renderStrip();
+    carStatus(vary.checked
+      ? 'التخطيط سيتنوّع بين الشرائح — المقاس واللون والخط والنوع كما هي'
+      : 'رجعت كل الشرائح إلى تكوين واحد', vary.checked ? 'ok' : '');
+  });
 
   /* keep the strip in step with regeneration (thumbnails are cached) */
   const baseGenerate = generate;

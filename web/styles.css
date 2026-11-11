@@ -391,6 +391,13 @@ input[type=range]::-moz-range-thumb{width:14px; height:14px; border:2px solid #0
 .car-title h2{font-size:15px}
 .car-actions{display:flex; gap:8px; flex-wrap:wrap}
 .car-actions .btn{font-size:12.5px; padding:8px 13px}
+.car-var{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:8px 13px; cursor:pointer; transition:.14s; user-select:none}
+.car-var input{accent-color:var(--accent); margin:0}
+.car-var:has(input:checked){color:var(--accent); border-color:rgba(244,164,23,.5); background:rgba(244,164,23,.06)}
+.car-info{display:grid; gap:6px; font-size:12.5px; color:var(--muted); background:#0d1119; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:10px}
+.car-info b{font-weight:700}
+.car-info b.ok{color:var(--ok)} .car-info b.bad{color:var(--fail)}
+.car-info .ci-var{color:var(--text)}
 .car-strip{display:flex; gap:10px; align-items:flex-start; overflow-x:auto; padding:4px 2px 10px; scrollbar-width:thin}
 .slide{
   position:relative; flex:0 0 auto; width:120px; display:grid; gap:5px; padding:7px;
@@ -418,7 +425,9 @@ input[type=range]::-moz-range-thumb{width:14px; height:14px; border:2px solid #0
 .inspector{padding:16px 20px}
 .insp-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px}
 .insp-head h2{font-size:15px}
-.insp-head .btn{margin-left:auto; font-size:12px; padding:6px 11px}
+.insp-tools{display:flex; gap:8px; margin-left:auto; flex-wrap:wrap}
+.insp-tools .btn{font-size:12px; padding:6px 11px}
+.insp-tools .btn:disabled{opacity:.45; cursor:default}
 .layers{display:grid; gap:8px; max-height:380px; overflow-y:auto; padding-left:3px; scrollbar-width:thin}
 .lay-empty{font-size:12.5px; color:var(--muted); margin:0}
 .layer{background:#0d1119; border:1px solid var(--line); border-radius:10px; padding:8px 11px; transition:.14s; outline:none}
@@ -426,15 +435,35 @@ input[type=range]::-moz-range-thumb{width:14px; height:14px; border:2px solid #0
 .layer:focus{border-color:rgba(110,168,254,.6)}
 .layer.sel{border-color:rgba(110,168,254,.55); box-shadow:0 0 0 2px rgba(110,168,254,.13)}
 .layer.off{opacity:.48}
+.layer.locked{border-color:rgba(244,164,23,.42)}
 .layer.off .lay-name{text-decoration:line-through}
 .lay-top{display:flex; align-items:center; gap:8px}
 .lay-name{font-size:12.5px; font-weight:600; color:var(--text); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .lay-kind{font-size:10.5px; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:2px 8px; white-space:nowrap}
-.lay-vis,.lay-reset{
+.lay-vis,.lay-reset,.lay-lock,.lay-z button{
   border:0; background:transparent; cursor:pointer; font-size:13px; line-height:1;
   padding:3px 5px; border-radius:6px; opacity:.75; transition:.12s;
 }
-.lay-vis:hover,.lay-reset:hover{background:#1a2130; opacity:1}
+.lay-vis:hover,.lay-reset:hover,.lay-lock:hover,.lay-z button:hover{background:#1a2130; opacity:1}
+.lay-lock.on{opacity:1; color:var(--accent)}
+.lay-z{display:flex; gap:1px; margin-inline-start:auto; border:1px solid var(--line); border-radius:7px; padding:1px}
+.lay-z button{font-size:11px; padding:3px 6px}
+.lay-z button:hover{background:#1a2130}
+.lay-sep{font-size:10.5px; color:var(--muted); border:1px solid var(--line); border-radius:99px; padding:2px 8px; white-space:nowrap}
+.lay-xy input[type=number]{
+  width:66px; padding:4px 6px; font-size:12px; border-radius:7px;
+  background:#070a0f; border:1px solid var(--line); color:var(--text);
+  direction:ltr; text-align:left; font-variant-numeric:tabular-nums;
+}
+.lay-xy input[type=number]:focus{border-color:rgba(110,168,254,.55); outline:none}
+.lay-xy input[type=number]::-webkit-outer-spin-button,.lay-xy input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+.lay-xy input[type=number]{-moz-appearance:textfield; appearance:textfield}
+/* P7 — selected-layer measurements: facts read off the painted boxes */
+.measure{background:#0d1119; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:10px; font-size:12px}
+.meas-head{font-size:12.5px; font-weight:700; color:var(--accent); margin-bottom:6px}
+.meas-row{display:grid; grid-template-columns:78px 1fr; gap:9px; padding:4px 0; border-top:1px dashed var(--line)}
+.meas-row span{color:var(--muted); white-space:nowrap}
+.meas-row b{font-weight:600; color:var(--text); line-height:1.5}
 .lay-body{display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--line)}
 .lay-ctl{display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted)}
 .lay-ctl > span{white-space:nowrap}

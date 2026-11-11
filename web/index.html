@@ -6,9 +6,9 @@
 <title>مِرسم — وكيل تصميم بالقياس</title>
 <meta name="description" content="وكيل تصميم يولّد بوسترات احترافية عربية من موجز، ثم يقيس النتيجة ويصحّحها ذاتيًا — بالكامل في متصفحك.">
 <meta name="theme-color" content="#0b0e13">
-<link rel="stylesheet" href="styles.css?v=19">
-<link rel="stylesheet" href="styles-creative.css?v=19">
-<link rel="stylesheet" href="styles-knowledge.css?v=19">
+<link rel="stylesheet" href="styles.css?v=20">
+<link rel="stylesheet" href="styles-creative.css?v=20">
+<link rel="stylesheet" href="styles-knowledge.css?v=20">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0e13'/><circle cx='11' cy='11' r='5' fill='%23f4a417'/><rect x='16' y='18' width='10' height='4' rx='2' fill='%23e9ecf2'/></svg>">
 </head>
 <body>
@@ -264,6 +264,10 @@
           <span class="qa-note">شرائح متتابعة بنفس الهوية — شريط مصغّرات، تنقّل، وتنزيل دفعة واحدة</span>
         </div>
         <div class="car-actions">
+          <label class="car-var" title="بدّل التكوين بين الشرائح (تسلسلي ← تقسيم ← تحريري) مع إبقاء المقاس واللون والخط والنوع كما هي — تنويع لا كسر للهوية">
+            <input type="checkbox" id="carVary">
+            <span>نوّع التخطيط</span>
+          </label>
           <button type="button" id="carAdd" class="btn btn-ghost" title="إضافة شريحة فارغة بنفس الإعداد (+)">+ شريحة</button>
           <button type="button" id="carAuto" class="btn" title="يقسّم الوصف إلى غلاف + بنود + دعوة">قسّم الوصف على شرائح</button>
           <button type="button" id="carExport" class="btn btn-primary" title="تنزيل كل الشرائح PNG + ملف الترتيب">تنزيل كل الشرائح</button>
@@ -271,6 +275,7 @@
         </div>
       </div>
       <div class="car-strip" id="carStrip" role="tablist" aria-label="شرائح الكاروسيل"></div>
+      <div class="car-info" id="carInfo" hidden><!-- filled by JS --></div>
       <div class="status" id="carStatus"></div>
     </div>
 
@@ -278,10 +283,15 @@
     <div class="panel inspector">
       <div class="insp-head">
         <h2>فاحص الطبقات</h2>
-        <span class="qa-note">اضغط على المعاينة لتحديد عنصر · التعديلات تبقى بعد إعادة التوليد</span>
-        <button type="button" id="inspReset" class="btn btn-ghost" title="حذف كل تعديلات العناصر والعودة لقيم التصميم">إعادة ضبط العناصر</button>
+        <span class="qa-note">القائمة من الأعلى (يُرسم فوق) إلى الأسفل · اضغط المعاينة للتحديد · التعديلات تبقى بعد التوليد</span>
+        <div class="insp-tools">
+          <button type="button" id="inspUndo" class="btn btn-ghost" disabled title="تراجع — Ctrl+Z">↶ تراجع</button>
+          <button type="button" id="inspRedo" class="btn btn-ghost" disabled title="إعادة — Ctrl+Shift+Z">↷ إعادة</button>
+          <button type="button" id="inspReset" class="btn btn-ghost" title="حذف كل تعديلات العناصر والعودة لقيم التصميم">إعادة ضبط العناصر</button>
+        </div>
       </div>
       <div class="layers" id="layers"><!-- filled by JS --></div>
+      <div class="measure" id="inspMeasure" hidden><!-- filled by JS --></div>
       <div class="status" id="inspStatus"></div>
     </div>
 
@@ -711,6 +721,8 @@
       <li><kbd>←</kbd> <kbd>→</kbd><span>الشريحة التالية / السابقة (اتجاه القراءة)</span></li>
       <li><kbd>1</kbd>–<kbd>5</kbd><span>طبقات التغذية البصرية (تركيز · حواف · شبكة · آمنة · حبر)</span></li>
       <li><kbd>Del</kbd><span>إخفاء/إظهار العنصر المحدٍّد في الفاحص</span></li>
+      <li><kbd>Ctrl</kbd> <kbd>Z</kbd><span>تراجع آخر تعديل في الفاحص</span></li>
+      <li><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd><span>إعادة التعديل المُلغى (أو Ctrl+Y)</span></li>
       <li><kbd>Esc</kbd><span>إغلاق النوافذ وإلغاء التحديد</span></li>
       <li><kbd>?</kbd><span>هذه القائمة</span></li>
     </ul>
@@ -725,18 +737,18 @@
   <p>مبني على مبادئ تصميم قابلة للقياس: تسلسل بصري، تباين WCAG، شبكة وهوامش، لون ٦٠-٣٠-١٠، وقواعد الخط العربي.</p>
 </footer>
 
-<script src="vendor/pdf-lib.min.js?v=19"></script>
-<script src="vendor/ag-psd.js?v=19"></script>
-<script src="vendor/gif.js?v=19"></script>
-<script src="vendor/qrcode.js?v=19"></script>
-<script src="fonts.js?v=19"></script>
-<script src="vendor/tabler-icons.js?v=19"></script>
-<script src="knowledge.js?v=19"></script>
-<script src="export.js?v=19"></script>
-<script src="app.js?v=19"></script>
-<script src="carousel.js?v=19"></script>
-<script src="inspector.js?v=19"></script>
-<script src="studio.js?v=19"></script>
-<script src="creative.js?v=19"></script>
+<script src="vendor/pdf-lib.min.js?v=20"></script>
+<script src="vendor/ag-psd.js?v=20"></script>
+<script src="vendor/gif.js?v=20"></script>
+<script src="vendor/qrcode.js?v=20"></script>
+<script src="fonts.js?v=20"></script>
+<script src="vendor/tabler-icons.js?v=20"></script>
+<script src="knowledge.js?v=20"></script>
+<script src="export.js?v=20"></script>
+<script src="app.js?v=20"></script>
+<script src="carousel.js?v=20"></script>
+<script src="inspector.js?v=20"></script>
+<script src="studio.js?v=20"></script>
+<script src="creative.js?v=20"></script>
 </body>
 </html>
