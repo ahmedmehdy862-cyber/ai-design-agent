@@ -16,18 +16,25 @@ brief ──► makePlan ──► applyKnowledge ──► applyOverrides ─�
 
 **ترتيب التطبيق (حاسم):** خطة ← معرفة ← **تعديلات المصمّم (الأعلى)** ← قياس ← تصحيح ← معرفة ← تعديلات.
 
-## 2. خريطة الوحدات وترتيب التحميل
+## 2. خريطة الوحدات وترتيب التحميل — الملفات العشرة
 
-| # | الملف | يُعرِّف | يُغلِّف/يعتمد على |
-|---|---|---|---|
-| 1 | `knowledge.js` | `DESIGN_KNOWLEDGE` · `DESIGN_REFS` · `DESIGN_GENRES` · `DESIGN_SHAPES` · `MOOD_RULES` · `parseBriefPrompt` · `AI_PROVIDERS` · `FREEFIELD` · `KNOWLEDGE_APPLIERS` · `applyKnowledge` | — |
-| 2 | `export.js` | `EXPORT_PROGRAMS` · `EXPORT_GUIDES` · `buildProject` · `buildLayeredSVG` · `exportFlat` · `exportForProgram` · helpers تنزيل | — |
-| 3 | `app.js` | `makePlan` · `renderSVG` · `analyze` · `applyFixes` · `runLoop` · `renderUI` · `generate` · `overrides` · `applyOverrides` · واجهة التحكم | — |
-| 4 | `carousel.js` | `slides` · `autoCarousel` · `renderStrip` · `exportCarousel` | **يُغلِّف `generate`** |
-| 5 | `inspector.js` | `layerRow` · `renderLayers` · `pickElement` · اختصارات | **يُغلِّف `renderUI`** |
-| 6 | `studio.js` | تبويبات · `applyBrief` · تحليل محل AI · مراجع · معرفة · تصدير · وسائط · محرّك | يعتمد على `app.js` |
+ثمانية وحدات `js` بترتيب تحميلها الفعلي في `index.html` + ملفا الواجهة:
 
-> وحدة جديدة تُحمَّل **بعد** `app.js` إن احتاجت `makePlan`/`$`/`lastPlan`، وتحافظ على التغليف القائم.
+| # | الملف | الحجم | يُعرِّف | يُغلِّف/يعتمد على |
+|---|---|---|---|---|
+| 0 | `fonts.js` | 3.8KB | `LOCAL_FONT_DEFS` (Cairo · Tajawal · Almarai · Amiri) · تسجيل `document.fonts` · `fontFaceStyleFor` · تجليد base64 للتصدير | — (يُحمَّل أولًا) |
+| 1 | `knowledge.js` | 51KB | `DESIGN_KNOWLEDGE` · `DESIGN_REFS` · `DESIGN_GENRES` · `DESIGN_SHAPES` · `MOOD_RULES` · `parseBriefPrompt` · `AI_PROVIDERS` · `FREEFIELD` · `KNOWLEDGE_APPLIERS` · `applyKnowledge` · بحث المعرفة + مكتبة المراجع + `sendToEngine` | — |
+| 2 | `export.js` | 19.6KB | `EXPORT_PROGRAMS` · `EXPORT_GUIDES` · `buildProject` · `buildLayeredSVG` · `exportFlat` · `exportForProgram` · helpers تنزيل | — |
+| 3 | `app.js` | 99KB | `makePlan` · `renderSVG` · `typeBBox` · `analyze` · `applyFixes` · `runLoop` · `critique` · `critic` · `renderUI` · `generate` · `overrides` · `applyOverrides` · `pushUndo/undoEdits/redoEdits` · واجهة التحكم | — (قلب النظام) |
+| 4 | `carousel.js` | 14.9KB | `slides` · `slideBrief` (+تنويع `composition`) · `autoCarousel` · `renderStrip` · `renderCarInfo` · `IDENTITY` · `exportCarousel` | **يُغلِّف `generate`** |
+| 5 | `inspector.js` | 32KB | `layerRow` · `renderLayers` (مقلوبة) · `renderMeasure` · `moveLayer` · `doUndo/doRedo` · `pickElement` · اختصارات (Ctrl+Z/Y) | **يُغلِّف `renderUI`** |
+| 6 | `studio.js` | 47KB | تبويبات · `applyBrief` · تحليل محلي AI · مراجع (Openverse + رفع) · معرفة · تصدير · وسائط · محرّك · WebM | يعتمد على `app.js` |
+| 7 | `creative.js` | 34KB | `CR_FIELDS` · `analyzeCreative` (موجز 12 حقلًا) · `CONCEPT_STRATEGIES` (مفاهيم) · `CR_AXES/CR_SCHOOLS` (محاور توجيه تُتبنّى) · `bootCreative` | يعتمد على `knowledge.js` |
+| — | `index.html` | 43KB | الهيكل RTL · كل حقول الواجهة · ترتيب تحميل الوحدات · `?v=` الكاش (v20) · لوحة مفاتيح المساعدة | يحمل الوحدات بترتيبها |
+| — | `styles.css` + `styles-creative.css` + `styles-knowledge.css` | 37KB | نظام التصميم (متغيرات · RTL · فاحص · كاروسيل · قياسات) | يُطبع فوق الملفات الثلاثة |
+
+> **القاعدة:** وحدة جديدة تُحمَّل **بعد** `app.js` إن احتاجت `makePlan`/`$`/`lastPlan`، وتحافظ على التغليف القائم (`renderUI`/`generate`).
+> **لا تحميل كسول:** الحصيلة 381.6KB لـ12 ملفًا (trunk صغير) — التحميل المبكر أرخص من تعقيد التجزئة وترتيب الاعتماديات (قرار موثّق في P8).
 
 ## 3. مخطط الخطة (مصدر الحقيقة الوحيد)
 
@@ -64,10 +71,14 @@ plan = {
 
 ## 4. نظام التعديلات (Overrides)
 
-- المفتاح `el.key` → `{ color, opacity, sizeF, weight, align, hidden, x?, y?, z? }`.
-- الكتابة: `setOverride()` (فاحص) · التطبيق: `applyOverrides()` داخل `makePlan` وبعد كل إصلاح.
-- **الحفظ:** `localStorage['mirsam.overrides']` (يُستعاد بعد تحديث الصفحة).
-- `sizeF` نسبة من `el.base.size`؛ `hidden` يتجاوزه الراسم.
+- المفتاح `el.key` → `{ color, opacity, sizeF, weight, align, hidden, locked, dx, dy, sw, sh }` + مفتاح خاص `__order` (ترتيب z كامل).
+- الكتابة: `setOverride()` (الفاحص) · التطبيق: `applyOverrides()` — استدعاء أول داخل `makePlan` وثاني بعد كل إصلاح.
+- **الموضع والأبعاد نسبية:** الحقول تُعرض القيمة المطلقة، والتغيير يُخزَّن كإزاحة/مقياس من قاعدة مُخطَّطة `base.pos` — فلا يتضاعف بين الاستدعاءين (idempotent) ويبقى بعد إعادة التوليد.
+- **`locked: true`** يمرّر كل فروع `applyFixes` برسالة صادقة — تعديل المصمّم يعلو على الإصلاح الآلي.
+- **`__order`** ترتيب z كامل يُطبَّق في نهاية `applyOverrides`؛ المفاتيح الجديدة تأخذ مكانها الطبيعي.
+- **الحفظ:** `localStorage['mirsam.overrides']` (يُستعاد بعد تحديث الصفحة — أثر B8).
+- **التراجع:** سِجل في الذاكرة 60 خطوة (تجميع 900ms لسحب المؤشر) — `pushUndo` يُدفع من كل تعديل (لون/شفافية/حجم/وزن/محاذاة/إخفاء/موضع/ترتيب/قفل/إعادة ضبط) · `undoEdits/redoEdits` + أزرار ↶↷ + Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (لا يعملان أثناء الكتابة). السِجل لا يعيش بعد التحديث عمدًا (التعديلات المحفوظة تبقى وحدها).
+- `sizeF` نسبة من `el.base.size` · `hidden` يتجاوزه الراسم · `dx/dy/sw/sh` تُحسب من `base.pos`.
 
 ## 5. طبقات التغذية البصرية (`overlay`)
 
