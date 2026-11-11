@@ -923,6 +923,76 @@ function analyze(canvas, plan, opts = {}) {
     }
   }
 
+  /* ---- P6 — comprehensive automatic checks: dimensions · fonts · assets ·
+     resolution · crop · alignment · export integrity. Informational facts
+     are NOTEs (they never block or fake a defect); only a structural break
+     in the exported SVG earns FAIL, and alignment earns a fixable WARN. */
+  if (plan && Array.isArray(plan.elements)) {
+    const nameOf = el => TYPE_ROLE_AR[el.role] || el.role;
+    const vis = plan.elements.filter(el => el && !el.hidden);
+
+    if (Math.min(W, H) < 360)
+      issues.push({ id: 'size-guard', severity: 'NOTE', message: `أصغر ضلع ${Math.round(Math.min(W, H))}px — النص الصغير سيبتلعه التصدير`, hint: 'اختر مقاسًا ≥ 360px أو كبّر التباعد' });
+
+    for (const el of vis)
+      if (el.kind === 'imageFrame' && !el.src)
+        issues.push({ id: 'asset-missing', severity: 'NOTE', message: 'إطار الصورة بلا مصدر — يُرسم كصندوق داكن', hint: 'أعد رفع الصورة من لوحة الميديا' });
+
+    /* دقة + قص: the photo vs the box it must fill (2× export) */
+    const fr = vis.find(e => e.kind === 'imageFrame');
+    const fs = plan.meta && mediaStore.frame;
+    if (fr && fs && fs.nw && fs.nh && fr.rect) {
+      const need = Math.min(fr.rect[2], fr.rect[3]) * 2;
+      const have = Math.min(fs.nw, fs.nh);
+      if (have < need * 0.9)
+        issues.push({ id: 'low-res', severity: 'NOTE', message: `صورة الإطار ${Math.round(have)}px مقابل ${Math.round(need)}px لتصدير 2× — التفاصيل ستليين`, hint: 'ارفع صورة أعرض أو صغّر الإطار' });
+      const srcAR = fs.nw / fs.nh, boxAR = fr.rect[2] / Math.max(1, fr.rect[3]);
+      if (Math.max(srcAR, boxAR) / Math.min(srcAR, boxAR) > 1.6)
+        issues.push({ id: 'frame-crop', severity: 'NOTE', message: `نسبة الصورة ${srcAR.toFixed(2)} مقابل صندوق ${boxAR.toFixed(2)} — قصّ كبير عند «cover»`, hint: 'بدّل الصورة أو غيّر موضع الإطار' });
+    }
+
+    /* محاذاة: every right-locked line must share one right edge */
+    const rights = vis.filter(e => e.kind === 'type' && e.align === 'right');
+    if (rights.length > 1) {
+      const edges = rights.map(e => ({ el: e, edge: Math.round(typeBBox(e)[2]) })).sort((a, b) => a.edge - b.edge);
+      const med = edges[Math.floor(edges.length / 2)].edge;
+      const drifts = edges.filter(o => Math.abs(o.edge - med) > 6);
+      if (drifts.length)
+        issues.push({
+          id: 'align-drift', severity: 'WARN',
+          message: `${drifts.length} عناصر تبعد >6px عن خط اليمين المشترك (${med}px): ` + drifts.slice(0, 3).map(o => nameOf(o.el)).join(' · '),
+          hint: 'إعادة المحاذاة تجمع كل الأسطر على خط واحد'
+        });
+    }
+
+    /* خطوط: the requested family must really paint — equal width against a
+       guaranteed-missing sentinel means it silently fell back */
+    const fam = plan.meta && plan.meta.font;
+    if (fam) {
+      const probe = s => { measureCtx.font = `700 40px ${s}`; return measureCtx.measureText('مرسم مِرسم 2026').width; };
+      const wFam = probe(`"${fam}"`);
+      const wSent = probe('"MIRSAM__MISSING__"');
+      if (Math.abs(wFam - wSent) < 0.5)
+        issues.push({ id: 'font-fallback', severity: 'NOTE', message: `الخط «${fam}» لم يُطبَّق في هذه البيئة — النص قيست على خط البديل`, hint: 'اختر خطًا متاحًا من القائمة المحلية' });
+    }
+
+    /* سلامة التصدير: the exact string PNG/PDF/SVG exports consume must parse,
+       escape and carry every visible text layer */
+    try {
+      const svg = renderSVG(plan, { transparent: true });
+      const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const broken = doc.querySelector('parsererror');
+      const got = doc.querySelectorAll('text').length;
+      const want = vis.filter(e => e.kind === 'type').length;
+      if (broken || got !== want)
+        issues.push({ id: 'export-integrity', severity: 'FAIL', message: broken ? 'SVG الناتج لم يُحلَّل — بنية التصدير تالفة' : `SVG يحمل ${got} نصًّا مقابل ${want} متوقّع`, hint: 'أعد التوليد · بلّغ مطوّرًا إذا تكرّر' });
+      else if (/&(?!(?:amp|lt|gt|quot|#\d+|#x[0-9a-fA-F]+);)/.test(svg))
+        issues.push({ id: 'export-integrity', severity: 'FAIL', message: 'رمز & غير مُهرَّب داخل SVG', hint: 'هروب النصوص معطوب — لا تصدّر قبل الإصلاح' });
+    } catch (e) {
+      issues.push({ id: 'export-integrity', severity: 'FAIL', message: `تعذّر بناء SVG: ${(e && e.message) || e}`, hint: 'عطل في مُصيّر الطباعة' });
+    }
+  }
+
   return {
     width: W, height: H, blankness,
     inkRatio: +inkRatio.toFixed(4),
@@ -988,6 +1058,18 @@ function applyFixes(plan, issues) {
       }
     } else if (issue.id === 'palette-creep') {
       fixes.push({ issue: issue.id, action: 'إعادة حصر الألوان في أدوار الباليتة' });
+    } else if (issue.id === 'align-drift') {
+      const rights = plan.elements.filter(e => e && !e.hidden && e.kind === 'type' && e.align === 'right');
+      if (rights.length > 1) {
+        const edges = rights.map(e => typeBBox(e)[2]).sort((a, b) => a - b);
+        const med = Math.round(edges[Math.floor(edges.length / 2)]);
+        let n = 0;
+        for (const e of rights) {
+          const d = Math.round(med - typeBBox(e)[2]);
+          if (Math.abs(d) > 6) { e.x += d; n++; }
+        }
+        fixes.push({ issue: issue.id, action: `محاذاة ${n} عنصرًا إلى خط اليمين ${med}px` });
+      }
     } else if (issue.id === 'text-overflow') {
       const el = plan.elements[issue.i];
       if (el && el.kind === 'type') {
@@ -1069,7 +1151,7 @@ async function runLoop(brief, opts = {}) {
     /* only defects with a deterministic remedy block the loop; documented
        palette notes and balance/focus remarks are reported to the designer */
     const FIXABLE = new Set(['low-contrast', 'clutter', 'focal-ambiguity', 'weak-hierarchy', 'edge-spill', 'blank',
-      'text-overflow', 'layer-overlap']);
+      'text-overflow', 'layer-overlap', 'align-drift']);
     const blocking = report.issues.filter(i => i.severity === 'FAIL' || FIXABLE.has(i.id));
 
     const rec = {
@@ -1284,10 +1366,24 @@ function readImageFile(file) {
   });
 }
 
+/* natural pixel size of a data URL: the resolution check must know what the
+   photo really carries before a 2× export stretches it */
+function imgDims(src) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res({ nw: im.naturalWidth, nh: im.naturalHeight });
+    im.onerror = () => rej(new Error('تعذّرت قراءة أبعاد الصورة'));
+    im.src = src;
+  });
+}
+
 async function addFrameImage(file, opts = {}) {
   const src = await readImageFile(file);
   mediaStore.frame = Object.assign({ slot: 'left-panel', fit: 'cover' },
     mediaStore.frame || {}, opts, { src });
+  /* P6: remember the true size — the low-res/crop checks stay silent without it */
+  try { Object.assign(mediaStore.frame, await imgDims(src)); }
+  catch { /* unknown dimensions: checks skip rather than guess */ }
   saveMedia();
   return mediaStore.frame;
 }
@@ -1437,6 +1533,111 @@ function critique(r, plan) {
   return out;
 }
 
+/* ---------- P6 — the critic: eight criteria, weighted by design type,
+   each scored from the measured report, then ordered by what to fix first.
+   Scores READ the measurements; they never replace them (the NOTE rule). --- */
+const CRITERIA = [
+  { id: 'contrast',   title: 'التباين',        issues: ['low-contrast'] },
+  { id: 'hierarchy',  title: 'التسلسل',        issues: ['weak-hierarchy'] },
+  { id: 'balance',    title: 'التوازن',        issues: ['unbalanced'] },
+  { id: 'whitespace', title: 'المساحة السالبة', issues: ['clutter', 'blank'] },
+  { id: 'palette',    title: 'تماسك الألوان',  issues: ['palette-creep', 'focal-ambiguity'] },
+  { id: 'edge',       title: 'سلامة الحافة',   issues: ['edge-spill', 'text-overflow', 'layer-overlap'] },
+  { id: 'focus',      title: 'نقطة التركيز',   issues: ['off-focal'] },
+  { id: 'integrity',  title: 'سلامة المخرج',   issues: ['export-integrity', 'asset-missing', 'font-fallback', 'low-res', 'frame-crop', 'size-guard'] }
+];
+
+/* weights by genre — [contrast, hierarchy, balance, whitespace, palette, edge, focus, integrity].
+   A thumbnail must be legible at 160px; a banner must read across a street;
+   a quote card lives or dies on balance. The weights say so. */
+const CRITERIA_W = {
+  default:        [1.2, 1.4, 1.2, 1.0, 1.0, 1.2, 1.0, 1.1],
+  'social-post':  [1.2, 1.5, 1.2, 1.0, 1.1, 1.0, 1.3, 1.0],
+  story:          [1.2, 1.4, 1.1, 1.0, 1.0, 1.5, 1.2, 1.1],
+  quote:          [1.1, 1.2, 1.5, 1.2, 1.0, 0.9, 1.4, 1.0],
+  'product-ad':   [1.5, 1.4, 1.1, 1.0, 1.1, 1.1, 1.1, 1.2],
+  event:          [1.3, 1.5, 1.2, 1.0, 1.0, 1.2, 1.1, 1.1],
+  menu:           [1.4, 1.3, 1.1, 1.4, 0.9, 1.2, 0.9, 1.1],
+  banner:         [1.5, 1.6, 1.1, 0.9, 0.9, 1.4, 1.0, 1.1],
+  thumbnail:      [1.7, 1.5, 1.0, 0.9, 1.0, 1.0, 1.4, 1.0],
+  flyer:          [1.2, 1.3, 1.2, 1.2, 1.0, 1.3, 1.0, 1.2],
+  card:           [1.4, 1.2, 1.1, 1.2, 1.0, 1.3, 0.9, 1.2]
+};
+
+function critic(r, plan) {
+  const genre = (plan.meta && plan.meta.genre) || 'default';
+  const w = CRITERIA_W[genre] || CRITERIA_W.default;
+  const c = r.maxContrast || 0;
+  const h = r.hierarchy || 0;
+  const rb = r.rightShare == null ? 0.5 : r.rightShare;
+  const split = !!(plan.meta && plan.meta.composition === 'split');
+  const hasBleed = (plan.elements || []).some(e => e.bleed);
+  const ids = new Set((r.issues || []).map(i => i.id));
+  const has = (id, sev) => (r.issues || []).some(i => i.id === id && (!sev || i.severity === sev));
+  const cl = v => Math.max(0, Math.min(100, Math.round(v)));
+
+  const scores = {
+    /* WCAG ladder: 7 AAA · 4.5 AA · 3 large-text · below → linear to nothing */
+    contrast: c >= 7 ? 100 : c >= 4.5 ? 90 : c >= 3 ? 65 : cl(65 * (c - 1) / 2),
+    /* no subhead at all is a neutral single-level design, not a failure */
+    hierarchy: h === 0 ? 80 : h >= 2.2 ? 100 : h >= 1.6 ? 90 : h >= 1.2 ? 65 : cl(65 * h / 1.2),
+    balance: (() => {
+      let s = rb <= 0.6 && rb >= 0.4 ? 100 : rb <= 0.7 && rb >= 0.3 ? 88 : rb <= 0.82 && rb >= 0.14 ? 70 : 40;
+      if (split && s < 70) s += 15;           /* split compositions lean on purpose */
+      return cl(s);
+    })(),
+    whitespace: (() => {
+      if (r.blankness < 8) return 0;
+      if (r.coverage > 0.78) return 15;
+      if (r.coverage > 0.65) return 55;
+      if (r.inkRatio < 0.015) return 55;      /* too thin: reads as empty */
+      if (r.inkRatio > 0.30) return 45;
+      return r.inkRatio >= 0.05 && r.inkRatio <= 0.20 ? 100 : 85;
+    })(),
+    palette: (() => {
+      let s = r.dominantHues <= 2 ? 100 : r.dominantHues === 3 ? 90 : r.dominantHues === 4 ? 60 : 35;
+      if (r.palette && r.palette.length >= 2 && r.palette[0].share / Math.max(r.palette[1].share, 1e-6) < 1.15) s -= 15;
+      return cl(s);
+    })(),
+    edge: (() => {
+      let s = 100;
+      if (r.edgePixels > 0) s -= hasBleed ? 8 : 25;
+      if (ids.has('text-overflow')) s -= has('text-overflow', 'FAIL') ? 60 : 30;
+      if (ids.has('layer-overlap')) s -= 30;
+      if (ids.has('align-drift')) s -= 15;
+      return cl(s);
+    })(),
+    focus: (() => {
+      if (r.focalDist == null) return 80;
+      let s = r.focalDist <= 0.10 ? 100 : r.focalDist <= 0.22 ? 88 : r.focalDist <= 0.35 ? 60 : 40;
+      if (ids.has('off-focal')) s -= 8;
+      return cl(s);
+    })(),
+    integrity: (() => {
+      let s = 100;
+      for (const [id, pen] of [['export-integrity', 70], ['blank', 50], ['asset-missing', 30],
+        ['font-fallback', 25], ['low-res', 25], ['frame-crop', 15], ['size-guard', 20]])
+        if (ids.has(id)) s -= pen;
+      return cl(s);
+    })()
+  };
+
+  const list = CRITERIA.map((k, i) => ({
+    id: k.id, title: k.title, weight: w[i], score: scores[k.id],
+    issues: k.issues.filter(id => ids.has(id))
+  }));
+  const wSum = list.reduce((a, k) => a + k.weight, 0);
+  const overall = Math.round(list.reduce((a, k) => a + k.score * k.weight, 0) / wSum);
+  const grade = overall >= 90 ? 'ممتاز' : overall >= 78 ? 'جيد جدًا'
+    : overall >= 65 ? 'جيد' : overall >= 50 ? 'مقبول' : 'يحتاج عملًا';
+  /* priority = weight × shortfall below 85, and only where a real issue stands behind it */
+  const priority = list
+    .map(k => ({ ...k, gap: Math.max(0, 85 - k.score) * k.weight }))
+    .filter(k => k.gap > 0 && k.issues.length)
+    .sort((a, b) => b.gap - a.gap);
+  return { list, overall, grade, priority };
+}
+
 function renderUI(res) {
   const { report, canvas, plan, history, result } = res;
   lastRes = res; lastCanvas = canvas; lastPlan = plan;
@@ -1472,7 +1673,25 @@ function renderUI(res) {
     metricCard('التوازن', `${arNum(Math.round(report.rightShare * 100))}%`, bOk ? 'ok' : 'warn') +
     metricCard('التسلسل', `${report.hierarchy ? report.hierarchy.toFixed(2) : '—'}×`, hOk ? 'ok' : 'warn');
 
-  $('critique').innerHTML = critique(report, plan)
+  /* P6 — weighted scores + fix priority, rendered from the same measurements */
+  const crit = critic(report, plan);
+  const lvl = s => s >= 85 ? 'ok' : s >= 65 ? 'mid' : 'low';
+  const cs = $('criticScores');
+  if (cs) {
+    cs.innerHTML =
+      `<div class="crit-head"><span class="crit-grade ${lvl(crit.overall)}">${crit.grade}</span>`
+      + `<span class="crit-num">${arNum(crit.overall)}<small>/١٠٠</small></span>`
+      + `<span class="crit-w">ثمانية معايير مرجَّحة حسب «${plan.meta.genreName || plan.meta.genre}»</span></div>`
+      + crit.list.map(k =>
+        `<div class="crit-row"><span class="crit-t">${k.title}</span>`
+        + `<span class="crit-bar"><i class="${lvl(k.score)}" style="width:${k.score}%"></i></span>`
+        + `<span class="crit-s ${lvl(k.score)}">${arNum(k.score)}</span></div>`).join('');
+  }
+
+  const prio = crit.priority.length
+    ? [`أولوية الإصلاح (الأول أولاً): ${crit.priority.map(k => `${k.title} ${arNum(k.score)}`).join(' · ')}`]
+    : [];
+  $('critique').innerHTML = prio.concat(critique(report, plan))
     .map(t => `<li>${t}</li>`).join('');
 
   const list = [];
@@ -1505,6 +1724,11 @@ async function generate() {
     if (typeof ensureLocalFont === 'function') {
       try { await ensureLocalFont(($('font') && $('font').value) || 'Tahoma'); }
       catch { /* system fallback renders */ }
+    }
+    /* P6: saves made before the resolution check existed — learn their size once */
+    if (mediaStore.frame && mediaStore.frame.src && !mediaStore.frame.nw) {
+      try { Object.assign(mediaStore.frame, await imgDims(mediaStore.frame.src)); saveMedia(); }
+      catch { /* undecodable: the check stays silent rather than guessing */ }
     }
     do {
       pending = false;
