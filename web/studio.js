@@ -282,6 +282,219 @@ async function runEngine() {
   }
 }
 
+/* =========================================================================
+   P3 — قاعدة المعرفة التفاعلية (بحث فوري · إضافة محلية · استرجاع بالوصف)
+   ========================================================================= */
+function knRenderHits(hits, title) {
+  const box = $s('knResults');
+  if (!box) return;
+  if (!hits.length) {
+    box.hidden = false;
+    box.innerHTML = `<p class="hint">لا مطابقة لـ «${esc(title)}» — جرّب كلمة أعم (لون · تباين · شبكة).</p>`;
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = `<p class="kn-hits-head">${hits.length === 1 ? 'نتيجة واحدة' : arNum(hits.length) + ' نتائج'} — ${esc(title)}</p>` +
+    `<div class="kn-grid">` + hits.map(h => `
+      <article class="kn-card${h.item.local ? ' kn-local' : ''}">
+        <h4>${esc(h.item.title)}${h.item.local ? ' <span class="kn-badge">محلي</span>' : ''}</h4>
+        ${h.item.rule ? `<p class="kn-rule">${esc(h.item.rule)}</p>` : ''}
+        <p>${esc(h.item.body)}</p>
+        ${h.why ? `<p class="kn-why">↗ ${esc(h.why)}</p>` : ''}
+        ${h.item.local ? `<button type="button" class="btn btn-ghost kn-del" data-kn-del="${esc(h.item.id)}">حذف</button>` : ''}
+      </article>`).join('') + `</div>`;
+  box.querySelectorAll('[data-kn-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      removeUserKnowledge(btn.dataset.knDel);
+      knSyncCount();
+      $s('knSearch').dispatchEvent(new Event('input'));
+    });
+  });
+}
+
+function knRunSearch() {
+  const q = ($s('knSearch').value || '').trim();
+  const box = $s('knResults');
+  if (!q) { box.hidden = true; box.innerHTML = ''; return; }
+  knRenderHits(searchKnowledge(q), `بحث: ${q}`);
+}
+
+function knRunRetrieve() {
+  const d = ($s('knDesc').value || '').trim();
+  const st = $s('knStatus');
+  if (!d) {
+    const box = $s('knResults');
+    box.hidden = false;
+    box.innerHTML = '<p class="hint">اكتب وصف تصميمك في الحقل أعلاه (أو انسخه من «فهم الوصف») لاسترجاع المعرفة المناسبة له.</p>';
+    return;
+  }
+  const hits = retrieveKnowledgeForDescription(d, 6);
+  knRenderHits(hits, `وصفك: ${d.slice(0, 46)}${d.length > 46 ? '…' : ''}`);
+}
+
+function knSyncCount() {
+  const n = loadUserKnowledge().length;
+  const el = $s('knLocalCount');
+  if (el) el.innerHTML = n
+    ? `عنصرك المحلي: <b>${arNum(n)}</b> — يظهر في كل بحث`
+    : 'لا عناصر محلية بعد — أول إضافة تظهر موسومة «محلي»';
+}
+
+function knAddLocal() {
+  const title = ($s('knTitle').value || '').trim();
+  const rule = ($s('knRule').value || '').trim();
+  const body = ($s('knBody').value || '').trim();
+  const tags = ($s('knTags').value || '').split(/[،,]+/).map(t => t.trim()).filter(Boolean);
+  if (!title || !body) { knFlash('العنوان والشرح مطلوبان', 'err'); return; }
+  const item = addUserKnowledge({ title, rule, body, tags });
+  if (!item) { knFlash('امتلأ التخزين المحلي — احذف عنصرًا قبل الإضافة', 'err'); return; }
+  $s('knTitle').value = ''; $s('knRule').value = ''; $s('knBody').value = ''; $s('knTags').value = '';
+  knSyncCount();
+  knFlash('أُضيف إلى قاعدتك محليًا ✓ — يظهر في البحث فورًا', 'ok');
+  if (($s('knSearch').value || '').trim()) knRunSearch();
+}
+
+function knFlash(msg, cls) {
+  let el = $s('knFlash');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'knFlash';
+    el.className = 'status';
+    const add = $s('knAdd');
+    if (add && add.parentNode) add.parentNode.appendChild(el);
+  }
+  el.className = 'status ' + cls;
+  el.textContent = msg;
+}
+
+/* =========================================================================
+   P3 — مكتبة المراجع الشخصية (رفع · وسوم · مجموعات · بحث)
+   ========================================================================= */
+let libFilter = { type: 'all', value: '' };
+
+function libRender() {
+  const grid = $s('libGrid');
+  if (!grid) return;
+  const all = loadRefLibrary();
+  const q = ($s('libSearch').value || '').trim();
+  let list = searchRefLibrary(q, all);
+  if (libFilter.type === 'group') list = list.filter(r => r.group === libFilter.value);
+  if (libFilter.type === 'tag') list = list.filter(r => (r.tags || []).includes(libFilter.value));
+
+  /* filters: groups + tags actually present */
+  const groups = refLibraryGroups(all);
+  const fbox = $s('libFilters');
+  if (fbox) {
+    const tags = refLibraryTags(all);
+    fbox.innerHTML =
+      `<button type="button" class="chip${libFilter.type === 'all' ? ' chip-accent' : ''}" data-libf="all">الكل (${arNum(all.length)})</button>` +
+      groups.map(g => `<button type="button" class="chip${libFilter.type === 'group' && libFilter.value === g ? ' chip-accent' : ''}" data-libg="${esc(g)}">${esc(g)}</button>`).join('') +
+      tags.map(t => `<button type="button" class="chip${libFilter.type === 'tag' && libFilter.value === t ? ' chip-accent' : ''}" data-libt="${esc(t)}">#${esc(t)}</button>`).join('');
+    fbox.querySelectorAll('[data-libf]').forEach(b => b.addEventListener('click', () => { libFilter = { type: 'all', value: '' }; libRender(); }));
+    fbox.querySelectorAll('[data-libg]').forEach(b => b.addEventListener('click', () => { libFilter = { type: 'group', value: b.dataset.libg }; libRender(); }));
+    fbox.querySelectorAll('[data-libt]').forEach(b => b.addEventListener('click', () => { libFilter = { type: 'tag', value: b.dataset.libt }; libRender(); }));
+  }
+
+  /* datalist of existing groups */
+  const dl = $s('libGroups');
+  if (dl) dl.innerHTML = groups.map(g => `<option value="${esc(g)}">`).join('');
+
+  if (!all.length) {
+    grid.innerHTML = '<p class="hint">مكتبتك فارغة — ارفع أول صورة مرجعية من أعلاه.</p>';
+    return;
+  }
+  if (!list.length) {
+    grid.innerHTML = `<p class="hint">لا نتيجة في المكتبة لـ «${esc(q || libFilter.value)}».</p>`;
+    return;
+  }
+  grid.innerHTML = list.map(r => `
+    <figure class="ref-card lib-card" data-lib-id="${r.id}">
+      <img src="${r.img}" alt="${esc(r.name)}" loading="lazy">
+      <figcaption>
+        <span class="ref-name">${esc(r.name)}</span>
+        ${r.group ? `<span class="lib-group">${esc(r.group)}</span>` : ''}
+        <span class="ref-desc">${(r.tags || []).map(t => '#' + esc(t)).join(' ') || 'بلا وسوم'}</span>
+      </figcaption>
+      <button type="button" class="btn btn-ghost lib-del" data-lib-del="${r.id}" title="حذف من المكتبة">✕</button>
+    </figure>`).join('');
+  grid.querySelectorAll('[data-lib-del]').forEach(b => {
+    b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      removeRefFromLibrary(b.dataset.libDel);
+      libFlash('حُذف من المكتبتك ✓', 'ok');
+      libRender();
+    });
+  });
+}
+
+function libFlash(msg, cls) {
+  const el = $s('libStatus');
+  if (el) { el.className = 'status ' + cls; el.textContent = msg; }
+}
+
+async function libAdd() {
+  const file = $s('libFile').files[0];
+  const name = ($s('libName').value || '').trim();
+  const tags = ($s('libTags').value || '').split(/[،,]+/).map(t => t.trim()).filter(Boolean);
+  const group = ($s('libGroup').value || '').trim();
+  if (!file) { libFlash('اختر صورة أولًا', 'err'); return; }
+  if (!name) { libFlash('اكتب اسمًا مميزًا للمراجع (يُستدعى بالبحث)', 'err'); return; }
+  libFlash('جارٍ تجهيز الصورة محليًا…', 'pending');
+  try {
+    const img = await shrinkImageFile(file);
+    const res = addRefToLibrary({ name, tags, group, img, size: file.size });
+    if (res.err) { libFlash(res.err, 'err'); return; }
+    $s('libFile').value = ''; $s('libName').value = ''; $s('libTags').value = '';
+    libFilter = { type: 'all', value: '' };
+    libRender();
+    libFlash(`أُضيف «${name}» إلى مكتبتك ✓ (صورة مصغَّرة محلية)`, 'ok');
+  } catch (e) {
+    libFlash(e.message, 'err');
+  }
+}
+
+/* ---------------- vision analyzer (interface; honest key gating) -------- */
+function visionSync() {
+  const ok = visionAvailable();
+  const hint = $s('visionHint');
+  const out = $s('visionOut');
+  if (hint) hint.style.display = ok ? 'none' : '';
+  if (out && !ok) { out.className = 'status'; out.textContent = ''; }
+  const run = $s('visionRun');
+  if (run) run.disabled = !ok;
+}
+
+async function visionRun() {
+  const out = $s('visionOut');
+  const file = $s('visionFile').files[0];
+  const q = ($s('visionQ').value || '').trim();
+  const btn = $s('visionRun');
+  if (!file) { if (out) { out.className = 'status err'; out.textContent = 'اختر صورة مرجعية أولًا'; } return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التحليل…'; }
+  if (out) { out.className = 'status pending'; out.textContent = 'جارٍ قراءة الصورة عبر Gemini…'; }
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = () => reject(new Error('تعذّرت قراءة الملف'));
+      fr.readAsDataURL(file);
+    });
+    const obj = await analyzeRefByVision(dataUrl, q);
+    if (!obj) throw new Error('لم يُعِد النموذج JSON صالحًا');
+    if (out) {
+      out.className = 'status ok';
+      out.innerHTML =
+        `✔ <b>${esc(obj.style || '')}</b> · تكوين: ${esc(obj.composition || '—')} · زخرفة: ${esc(obj.deco || '—')}<br>` +
+        `باليتة: ${((obj.palette || []).map(p => `<code>${esc(p)}</code>`)).join(' ') || '—'}<br>` +
+        `نصيحة: ${esc(obj.advice || '')}`;
+    }
+  } catch (e) {
+    if (out) { out.className = 'status err'; out.textContent = 'تعذّر التحليل: ' + e.message; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'حلّل الصورة'; visionSync(); }
+  }
+}
+
 /* ---------------- boot ---------------- */
 document.addEventListener('DOMContentLoaded', () => {
   try { const e = JSON.parse(localStorage.getItem('mirsam.engine') || '{}');
@@ -291,6 +504,25 @@ document.addEventListener('DOMContentLoaded', () => {
   renderAIConfig();
   renderRefs();
   renderKnowledge();
+
+  /* P3 — knowledge search / local additions / retrieval by description */
+  knSyncCount();
+  if ($s('knSearch')) $s('knSearch').addEventListener('input', knRunSearch);
+  if ($s('knRetrieve')) $s('knRetrieve').addEventListener('click', knRunRetrieve);
+  if ($s('knDesc')) $s('knDesc').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); knRunRetrieve(); }
+  });
+  if ($s('knAdd')) $s('knAdd').addEventListener('click', knAddLocal);
+
+  /* P3 — user reference library (upload · tags · groups) */
+  libRender();
+  if ($s('libAdd')) $s('libAdd').addEventListener('click', libAdd);
+  if ($s('libSearch')) $s('libSearch').addEventListener('input', libRender);
+
+  /* P3 — vision analyzer interface (works only with a local Gemini key) */
+  visionSync();
+  if ($s('visionRun')) $s('visionRun').addEventListener('click', visionRun);
+  if ($s('aiSave')) $s('aiSave').addEventListener('click', visionSync);
 
   if ($s('prompt')) $s('prompt').addEventListener('keydown', ev => {
     if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); runLocalParse(); }
@@ -532,6 +764,105 @@ document.addEventListener('DOMContentLoaded', () => {
     mStatus('أُزيل إطار الصورة — عاد التخطيط الأصلي', 'ok');
   });
 
+  /* ---- Openverse: real, commercially-licensed photos (no key, no account) ----
+     Every result carries its license + creator + source link; picking one
+     downloads the file locally exactly like an upload from disk. */
+  const ovGrid = $s('ovGrid'), ovStatus = $s('ovStatus');
+  const ovSet = (msg, cls) => { if (ovStatus) { ovStatus.className = 'status ' + (cls || ''); ovStatus.textContent = msg; } };
+  let ovSeq = 0;                                  /* ignores stale responses */
+
+  const ovLicenseLabel = r => {
+    const l = String(r.license || '').toUpperCase();
+    const v = r.license_version ? ' ' + r.license_version : '';
+    const name = { 'by': 'نسب المُصنِّف', 'by-sa': 'نسب + مشتركة', 'by-nc': 'غير تجارية',
+      'by-nd': 'بلا اشتقاق', 'cc0': 'الملكية العامة', 'pdm': 'ملكية عامة' }[String(r.license || '')];
+    return (name || l) + v;
+  };
+
+  async function ovSearch() {
+    const q = ($s('ovQ') ? $s('ovQ').value : '').trim();
+    if (!q) { ovSet('اكتب كلمة بحث أولًا', ''); return; }
+    const seq = ++ovSeq;
+    ovSet('جارٍ البحث في Openverse…', 'pending');
+    let data;
+    try {
+      const url = 'https://api.openverse.org/v1/images/?q=' + encodeURIComponent(q)
+        + '&license_type=commercial&page_size=12';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('الخادم رد بـHTTP ' + res.status);
+      data = await res.json();
+    } catch (err) {
+      if (seq !== ovSeq) return;
+      ovSet('تعذّر الوصول إلى Openverse — تحقق من الاتصال بالإنترنت. '
+        + 'بلا اتصال يبقى رفع الصور من جهازك يعمل كاملًا. (' + err.message + ')', 'err');
+      return;
+    }
+    if (seq !== ovSeq) return;
+    if (ovGrid) ovGrid.innerHTML = '';          /* keep the last good grid on failure */
+    const rows = (data.results || []).filter(r => r.thumbnail || r.url);
+    if (!rows.length) { ovSet('لا نتائج لـ«' + q + '» — جرّب كلمة أعمّ', ''); return; }
+    ovSet(rows.length + ' نتيجة مرخّصة تجاريًا — اختر واحدة لاستخدامها في الإطار', 'ok');
+    ovGrid.innerHTML = '';
+    rows.forEach(r => {
+      const fig = document.createElement('figure');
+      fig.className = 'ov-card';
+      const img = document.createElement('img');
+      img.alt = r.title || 'صورة من Openverse';
+      img.src = r.thumbnail || r.url;
+      img.onerror = () => { img.remove(); };
+      const cap = document.createElement('figcaption');
+      const t = document.createElement('span');
+      t.className = 'ov-title';
+      t.textContent = (r.title || 'بلا عنوان').slice(0, 60);
+      const meta = document.createElement('span');
+      meta.className = 'ov-meta';
+      meta.textContent = ovLicenseLabel(r) + ' · ' + (r.creator || 'مجهول');
+      const a = document.createElement('a');
+      a.href = r.foreign_landing_url || r.url;
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = 'المصدر ↗';
+      const use = document.createElement('button');
+      use.type = 'button'; use.className = 'btn btn-primary';
+      use.textContent = 'استخدمها في الإطار';
+      use.addEventListener('click', async () => {
+        use.disabled = true;
+        ovSet('جارٍ تنزيل الصورة وتصغيرها…', 'pending');
+        try {
+          const full = 'https://api.openverse.org/v1/images/' + r.id + '/thumb/?full_size=true';
+          const fr2 = await fetch(full);
+          if (!fr2.ok) throw new Error('HTTP ' + fr2.status);
+          const blob = await fr2.blob();
+          if (!blob.size) throw new Error('ملف فارغ');
+          const file = new File([blob], (r.title || 'openverse').replace(/[^\w\u0600-\u06FF-]+/g, '-').slice(0, 40) + '.jpg',
+            { type: blob.type || 'image/jpeg' });
+          const placed = await addFrameImage(file, {
+            slot: $s('frameSlot') ? $s('frameSlot').value : 'left-panel',
+            fit: $s('frameFit') ? $s('frameFit').value : 'cover',
+            credit: { title: r.title || '', creator: r.creator || '',
+              license: ovLicenseLabel(r), url: r.foreign_landing_url || r.url, source: 'Openverse' }
+          });
+          await refreshDesign();
+          const [w, h] = lastPlan ? lastPlan.canvas : [0, 0];
+          ovSet('✔ «' + (r.title || 'الصورة') + '» داخل الإطار — ' + w + '×' + h
+            + ' · الرخصة: ' + ovLicenseLabel(r) + ' · المُصوِّر: ' + (r.creator || 'مجهول')
+            + ' · المصدر: ' + (r.foreign_landing_url || r.url), 'ok');
+          void placed;
+        } catch (err) {
+          ovSet('تعذّر تنزيل الصورة — قد يكون المصدر نزّلها مؤقتًا. جرّب نتيجة أخرى أو ارفع من جهازك. (' + err.message + ')', 'err');
+        } finally {
+          use.disabled = false;
+        }
+      });
+      cap.append(t, meta, a, use);
+      fig.append(img, cap);
+      ovGrid.appendChild(fig);
+    });
+  }
+  if ($s('ovSearch')) $s('ovSearch').addEventListener('click', ovSearch);
+  if ($s('ovQ')) $s('ovQ').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); ovSearch(); }
+  });
+
   /* ---- QR code ---- */
   const applyQR = async () => {
     try {
@@ -553,6 +884,98 @@ document.addEventListener('DOMContentLoaded', () => {
     await refreshDesign();
     mStatus('أُزيل رمز QR', 'ok');
   });
+
+  /* ---- decorative icon (tabler, vendored: no CDN, no key) ---- */
+  const ICON_SLOT_LABELS = {
+    'top-right': 'أعلى اليمين', 'top-left': 'أعلى اليسار',
+    'bottom-right': 'أسفل اليمين', 'bottom-left': 'أسفل اليسار',
+    'mid-right': 'وسط اليمين', 'mid-left': 'وسط اليسار',
+    'top-center': 'أعلى الوسط', 'bottom-center': 'أسفل الوسط'
+  };
+  const iconGrid = $s('iconGrid'), iconStatus = $s('iconStatus');
+  const iSet = (msg, cls) => { if (iconStatus) { iconStatus.className = 'status ' + (cls || ''); iconStatus.textContent = msg; } };
+  let iconFilter = '';
+
+  function iconSvg(name, size) {
+    const def = (typeof TABLER_ICONS !== 'undefined') ? TABLER_ICONS[name] : null;
+    if (!def) return '';
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">`
+      + String(def.body) + '</svg>';
+  }
+
+  function renderIconGrid() {
+    if (!iconGrid || typeof TABLER_ICONS === 'undefined') return;
+    const names = Object.keys(TABLER_ICONS)
+      .filter(n => !iconFilter || n.includes(iconFilter))
+      .slice(0, 60);
+    iconGrid.innerHTML = '';
+    if (!names.length) {
+      iconGrid.innerHTML = '<p class="hint">لا أيقونة بهذا الاسم — جرّب: heart · star · rocket · palette</p>';
+      return;
+    }
+    const active = mediaStore.icon && mediaStore.icon.name;
+    for (const n of names) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'icon-cell' + (n === active ? ' on' : '');
+      b.title = n;
+      b.innerHTML = iconSvg(n, 26) + `<span>${n}</span>`;
+      b.addEventListener('click', async () => {
+        mediaStore.icon = {
+          name: n,
+          slot: $s('iconSlot') ? $s('iconSlot').value : 'top-right',
+          color: $s('iconColor') ? $s('iconColor').value : '#f4a417'
+        };
+        saveMedia();
+        await refreshDesign();
+        renderIconGrid();
+        const el = lastPlan && lastPlan.elements.find(e => e.kind === 'icon');
+        iSet(el
+          ? (el.slot === mediaStore.icon.slot
+            ? `✔ الأيقونة «${n}» داخل التصميم — ${ICON_SLOT_LABELS[el.slot] || el.slot}`
+            : `✔ الأيقونة «${n}» داخل التصميم — طلبت ${ICON_SLOT_LABELS[mediaStore.icon.slot]} لكنه مشغول فاستقرت في ${ICON_SLOT_LABELS[el.slot] || el.slot}`)
+          : '⚠ كل المواضع مشغولة حاليًا — أزل عنصرًا أو كبّر الهامش ثم أعد المحاولة', el ? 'ok' : 'err');
+      });
+      iconGrid.appendChild(b);
+    }
+  }
+
+  if ($s('iconSearch')) $s('iconSearch').addEventListener('input', e => {
+    iconFilter = (e.target.value || '').trim().toLowerCase();
+    renderIconGrid();
+  });
+  if ($s('iconSlot')) $s('iconSlot').addEventListener('change', async e => {
+    if (!mediaStore.icon) { iSet('اختر أيقونة أولًا — الموضع يُطبَّق معها', ''); return; }
+    mediaStore.icon.slot = e.target.value;
+    saveMedia();
+    await refreshDesign();
+    const el = lastPlan && lastPlan.elements.find(x => x.kind === 'icon');
+    iSet(el
+      ? (el.slot === e.target.value
+        ? `حُوِّل الموضع إلى: ${ICON_SLOT_LABELS[e.target.value]}`
+        : `طلبت ${ICON_SLOT_LABELS[e.target.value]} لكنه مشغول — استقرت في ${ICON_SLOT_LABELS[el.slot] || el.slot}`)
+      : 'كل المواضع مشغولة حاليًا', el ? 'ok' : 'err');
+  });
+  if ($s('iconColor')) $s('iconColor').addEventListener('input', async e => {
+    if (!mediaStore.icon) return;
+    mediaStore.icon.color = e.target.value;
+    saveMedia();
+    if (lastPlan && lastPlan.elements.some(x => x.kind === 'icon')) await refreshDesign();
+  });
+  if ($s('iconClear')) $s('iconClear').addEventListener('click', async () => {
+    if (!mediaStore.icon) { iSet('لا توجد أيقونة حاليًا', ''); return; }
+    mediaStore.icon = null;
+    saveMedia();
+    await refreshDesign();
+    renderIconGrid();
+    iSet('أُزيلت الأيقونة', 'ok');
+  });
+  /* restore the picker state from what is saved */
+  if (mediaStore.icon) {
+    if ($s('iconSlot') && mediaStore.icon.slot) $s('iconSlot').value = mediaStore.icon.slot;
+    if ($s('iconColor') && mediaStore.icon.color) $s('iconColor').value = mediaStore.icon.color;
+  }
+  renderIconGrid();
 
   /* ---- multi-format exporters: PDF · PSD · GIF ---- */
   const outList = (name, note) => {

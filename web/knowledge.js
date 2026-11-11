@@ -683,3 +683,256 @@ function applyKnowledge(plan) {
   if (done.length) plan.knowledgeApplied = (plan.knowledgeApplied || []).concat(done);
   return done;
 }
+
+/* =========================================================================
+   6. P3 — قاعدة المعرفة التفاعلية: بحث فوري · إضافة محلية · استرجاع حسب الوصف
+   كل شيء محلي: معرفة المستخدم تُحفظ في localStorage وحدها.
+   ========================================================================= */
+const KN_USER_KEY = 'mirsam.knowledge';
+
+/* تطبيع عربي للبحث: تشكيل · تطويل · ألف · ياء · تاء مربوطة · تمييز صغيرة */
+function knNorm(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[ً-ْٰـ]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/* ملحقات عربية ملتصقة (ال · واو العطف · الفاء · الباء · اللام · الكاف):
+   تُجرَّب كصيغ بديلة للكلمة، فـ«وشبكه» تجد «شبكه» و«الشبكه» تجد «شبكه» */
+function knVariants(w) {
+  const out = [w];
+  const push = x => { if (x.length >= 3 && !out.includes(x)) out.push(x); };
+  if (w.startsWith('لل')) push(w.slice(2));
+  if (w.startsWith('ال')) push(w.slice(2));
+  for (const p of ['و', 'ف', 'ب', 'ل', 'ك']) if (w.startsWith(p)) push(w.slice(1));
+  return out;
+}
+
+function loadUserKnowledge() {
+  try {
+    const v = JSON.parse(localStorage.getItem(KN_USER_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function saveUserKnowledge(list) {
+  try { localStorage.setItem(KN_USER_KEY, JSON.stringify(list)); return true; }
+  catch { return false; }   /* quota — the caller shows the message */
+}
+function addUserKnowledge(item) {
+  const list = loadUserKnowledge();
+  item.id = 'u' + Date.now();
+  item.local = true;
+  list.unshift(item);
+  const ok = saveUserKnowledge(list);
+  return ok ? item : null;
+}
+function removeUserKnowledge(id) {
+  const list = loadUserKnowledge().filter(x => x.id !== id);
+  return saveUserKnowledge(list);
+}
+
+/* مسطّح المعرفة: المدمجة + المحلية، مع باب القسم */
+function allKnowledgeItems() {
+  const out = [];
+  for (const [section, items] of Object.entries(DESIGN_KNOWLEDGE)) {
+    if (!Array.isArray(items)) continue;
+    for (const k of items) out.push(Object.assign({ section, local: false }, k));
+  }
+  for (const u of loadUserKnowledge()) {
+    out.push(Object.assign({ section: 'معرفي', local: true }, u));
+  }
+  return out;
+}
+
+/* بحث فوري: كل كلمة (بكل صيغها) تُطبَّق على العنوان (٤) والقاعدة (٣) والنص (٢) والوسوم (٣).
+   «مجموعة كلمة» = الصيغة الأصلية للعرض + ملحقاتها للمطابقة؛ يكفي تطابق صيغة واحدة. */
+function knWordGroups(query) {
+  const groups = [];
+  for (const w of knNorm(query).split(' ')) {
+    if (w.length <= 1) continue;
+    const vs = knVariants(w);
+    if (!groups.some(g => g.forms[0] === vs[0])) groups.push({ word: w, forms: vs });
+  }
+  return groups;
+}
+
+function searchKnowledge(query, limit = 12) {
+  const groups = knWordGroups(query);
+  if (!groups.length) return [];
+  const hits = [];
+  for (const item of allKnowledgeItems()) {
+    const hay = {
+      title: knNorm(item.title),
+      rule: knNorm(item.rule || ''),
+      body: knNorm(item.body || ''),
+      tags: knNorm((item.tags || []).join(' '))
+    };
+    let score = 0, matchedAll = true;
+    for (const g of groups) {
+      let s = 0;
+      for (const t of g.forms) {
+        if (hay.title.includes(t)) s += 4;
+        if (hay.tags.includes(t)) s += 3;
+        if (hay.rule.includes(t)) s += 3;
+        if (hay.body.includes(t)) s += 2;
+      }
+      if (!s) matchedAll = false;
+      score += s;
+    }
+    if (score > 0) hits.push({ item, score, matchedAll });
+  }
+  hits.sort((a, b) => (b.matchedAll - a.matchedAll) || (b.score - a.score));
+  return hits.slice(0, limit);
+}
+
+/* استرجاع المعرفة حسب وصف تصميم: أعلى المطابقات + سبب الاستدعاء */
+const KN_STOP = new Set(('من في على عن إلى مع هذا هذه ذلك التي الذي كان يكون لها له فيها قد كل شيء بعد قبل عند عندما أريد نريد تصميم منشور عبارة' +
+  ' انستغرام فيسبوك تويتر واتساب لعمل عملنا مشروعنا').split(' ').map(knNorm));
+
+function retrieveKnowledgeForDescription(desc, limit = 6) {
+  const groups = knWordGroups(desc).filter(g => !KN_STOP.has(g.word));
+  if (!groups.length) return [];
+  return searchKnowledge(groups.map(g => g.word).join(' '), limit * 2).slice(0, limit).map(h => {
+    const where = [];
+    const title = knNorm(h.item.title), rule = knNorm(h.item.rule || ''), body = knNorm(h.item.body || '');
+    for (const g of groups) {
+      if (g.forms.some(w => title.includes(w) || rule.includes(w) || body.includes(w))) where.push(g.word);
+    }
+    return {
+      item: h.item,
+      why: where.length
+        ? `طابقت كلمات وصفك: ${[...new Set(where)].slice(0, 4).join(' · ')}`
+        : 'مترابطة مع الوصف'
+    };
+  });
+}
+
+/* =========================================================================
+   7. P3 — مكتبة المراجع الشخصية (رفع · وسوم · مجموعات) — محلية بالكامل
+   الصور تُصغَّر إلى data URL قبل الحفظ (localStorage محدود ~5MB).
+   ========================================================================= */
+const LIB_KEY = 'mirsam.refLibrary';
+const LIB_MAX_PX = 640;        /* أقصى ضلع محفوظ للصورة */
+const LIB_MAX_ITEMS = 40;      /* سقف عتادي يمنع امتلاء التخزين */
+
+function loadRefLibrary() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LIB_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function saveRefLibrary(list) {
+  try { localStorage.setItem(LIB_KEY, JSON.stringify(list)); return true; }
+  catch { return false; }
+}
+
+/* ملف صورة → data URL مصغَّر (Canvas محلي، بلا رفع لأي خادم) */
+function shrinkImageFile(file, maxPx = LIB_MAX_PX) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type || '')) { reject(new Error('الملف ليس صورة')); return; }
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('تعذّرت قراءة الملف'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('تعذّرت قراءة الصورة'));
+      img.onload = () => {
+        const k = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * k));
+        const h = Math.max(1, Math.round(img.height * k));
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try { resolve(cv.toDataURL('image/jpeg', 0.82)); }
+        catch (e) { reject(new Error('تعذّر ضغط الصورة')); }
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+function addRefToLibrary(rec) {
+  const list = loadRefLibrary();
+  if (list.length >= LIB_MAX_ITEMS) return { err: `بلغت الحد ${arNum(LIB_MAX_ITEMS)} مراجعًا — احذف بعضها أولًا` };
+  rec.id = 'r' + Date.now();
+  rec.created = Date.now();
+  list.unshift(rec);
+  if (!saveRefLibrary(list)) return { err: 'امتلئ التخزين المحلي — احذف مراجعًا أو صغّر صورها' };
+  return { rec };
+}
+function removeRefFromLibrary(id) {
+  const list = loadRefLibrary().filter(r => r.id !== id);
+  return saveRefLibrary(list);
+}
+
+/* البحث داخل المكتبة: نص + وسم + مجموعة (تُكفي صيغة واحدة من صيغ كل كلمة) */
+function searchRefLibrary(query, list) {
+  const src = list || loadRefLibrary();
+  if (!knNorm(query)) return src;
+  const groups = knWordGroups(query);
+  return src.filter(r => {
+    const hay = knNorm([r.name, r.group || '', (r.tags || []).join(' ')].join(' '));
+    return groups.every(g => g.forms.some(t => hay.includes(t)));
+  });
+}
+function refLibraryGroups(list) {
+  const src = list || loadRefLibrary();
+  return [...new Set(src.map(r => r.group).filter(Boolean))];
+}
+function refLibraryTags(list) {
+  const src = list || loadRefLibrary();
+  const counts = {};
+  for (const r of src) for (const t of (r.tags || [])) counts[t] = (counts[t] || 0) + 1;
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 14).map(e => e[0]);
+}
+
+/* =========================================================================
+   8. P3 — مُحلّل المراجع بالرؤية (اختياري · مسار Gemini فقط)
+   الواجهة موجودة دائمًا؛ التنفيذ لا يعمل بلا مفتاح محلي،
+   وأي فشل يُبلَّغ برسالته الحقيقية — لا ادّعاء بلا اختبار.
+   ========================================================================= */
+function visionAvailable() {
+  const cfg = loadAIConfig();
+  return !!(cfg && cfg.key && cfg.provider === 'gemini');
+}
+
+async function analyzeRefByVision(dataUrl, question) {
+  const cfg = loadAIConfig();
+  if (!cfg || !cfg.key) throw new Error('لا مفتاح محفوظ — المُحلّل يحتاج مفتاح Gemini في «فهم الوصف»');
+  if (cfg.provider !== 'gemini') throw new Error('المُحلّل البصري مساره Gemini حاليًا — بدّل المزوّد');
+  const b64 = String(dataUrl).split(',')[1] || '';
+  const m = String(dataUrl).match(/^data:(image\/[\w.+-]+);base64,/);
+  const url = AI_PROVIDERS.gemini.endpoint(cfg.model || AI_PROVIDERS.gemini.model, cfg.key);
+  const prompt = `حلّل هذا المرجع التصميمي بصريًا: الأسلوب السائد، الباليتة اللونية (أكواد تقريبية)،` +
+    ` التكوين والتسلسل، والزخرفة. ثم أجب باختصار: ${question || 'كيف يمكن الاستفادة منه في تصميم عربي؟'}` +
+    ` أعد JSON حصريًا: {"style":"وصف قصير","palette":["#RRGGBB",...],"composition":"وصف قصير",` +
+    `"deco":"وصف قصير","advice":"نصيحة عملية واحدة للتصميم العربي"}`;
+  const payload = {
+    contents: [{ parts: [
+      { inline_data: { mime_type: m ? m[1] : 'image/jpeg', data: b64 } },
+      { text: prompt }
+    ] }],
+    generationConfig: { responseMimeType: 'application/json' }
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`الخادم ردّ ${res.status} — ${body.slice(0, 140)}`);
+  }
+  const json = await res.json().catch(() => null);
+  const text = AI_PROVIDERS.gemini.read(json);
+  return extractJSON(text);
+}

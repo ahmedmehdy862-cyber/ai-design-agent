@@ -249,7 +249,7 @@ function makePlan(b) {
   }
 
   /* ---- CTA ---- */
-  let chipY = null;                     /* also read by the list clip below */
+  let chipY = null, chipRect = null;             /* also read by the list clip below */
   if (b.cta) {
     const chipH = Math.round(ctaPt * 2.6);
     const chipW = Math.round(Math.min(W * 0.40, textW));
@@ -259,6 +259,7 @@ function makePlan(b) {
       radii: shapeRadius(shapeId, chipH), fill: accent, bleed: false,
       grad: b.accentMode === 'gradient' ? [accent, accent2] : null
     });
+    chipRect = [right - chipW, chipY, chipW, chipH];
     elements.push({
       role: 'cta-text', kind: 'type', x: right - chipW / 2,
       y: chipY + chipH / 2 + ctaPt * 0.35, text: b.cta, align: 'center',
@@ -348,6 +349,21 @@ function makePlan(b) {
       role: 'qr', kind: 'qr', rect: [m, H - m - qrSize, qrSize, qrSize],
       data: mediaStore.qr.text, fill: '#111111', bg: '#FFFFFF', bleed: false
     });
+  }
+
+  /* ---- decorative icon (tabler, vendored locally) — never lands on a
+     photo, a code, the CTA or any word: it slides to a free slot ---- */
+  if (mediaStore.icon && typeof TABLER_ICONS !== 'undefined' && TABLER_ICONS[mediaStore.icon.name]) {
+    const avoid = [frame, qrSize ? [m, H - m - qrSize, qrSize, qrSize] : null, chipRect]
+      .concat(elements.filter(e => e.kind === 'type').map(typeBBox))
+      .concat(elements.filter(e => e.rect && e.kind !== 'type').map(e => e.rect));
+    const place = iconRectFor(mediaStore.icon.slot || 'top-right', W, H, short, m, avoid);
+    if (place) {
+      elements.push({
+        role: 'icon', kind: 'icon', rect: place.rect, name: mediaStore.icon.name,
+        fill: mediaStore.icon.color || accent, bleed: false, slot: place.slot
+      });
+    }
   }
 
   /* stable element keys (role or role#index) → the inspector's address book,
@@ -492,6 +508,7 @@ function renderSVG(plan, opts = {}) {
   const [W, H] = plan.canvas, p = plan.palette;
   const margin = plan.grid.margin;
   let defs = '', body = '';
+  const usedFonts = new Set();   /* local fonts to embed (SVG images load no page fonts) */
   if (!opts.transparent) body += `<rect width="${W}" height="${H}" fill="${p.bg}"/>`;
 
   plan.elements.forEach((el, i) => {
@@ -568,6 +585,7 @@ function renderSVG(plan, opts = {}) {
     } else if (el.kind === 'type') {
       const maxW = el.maxW || (W - margin * 2);
       const lines = wrapLines(el.text, maxW, el.font, el.size, el.weight);
+      if (typeof fontFaceStyleFor === 'function') usedFonts.add(el.font);
       const dir = el.align === 'center' ? 'auto' : 'rtl';
       /* RTL note: with direction="rtl" the logical start is the RIGHT edge,
          so an Arabic right-aligned line needs text-anchor="start" — "end"
@@ -589,11 +607,30 @@ function renderSVG(plan, opts = {}) {
         body += `<tspan x="${el.x}" dy="${k === 0 ? 0 : el.leading}">${esc(ln)}</tspan>`;
       });
       body += '</text>';
+    } else if (el.kind === 'icon') {
+      /* tabler glyph (vendored): 24×24 grid scaled into the slot, with the
+         design's colour swapped in for currentColor so it prints anywhere */
+      const raw = (typeof TABLER_ICONS !== 'undefined') ? TABLER_ICONS[el.name] : null;
+      if (raw) {
+        const [x, y, w, h] = el.rect;
+        const k = w / 24;
+        const col = fill || el.fill || '#000000';
+        const glyph = String(raw.body).replace(/currentColor/g, col);
+        body += `<g transform="translate(${x},${y}) scale(${k})"${op}>${glyph}</g>`;
+        void h;
+      }
     }
   });
 
+  /* embed local fonts: an <img>-rendered SVG never loads the page's fonts */
+  let fontCSS = '';
+  if (typeof fontFaceStyleFor === 'function') {
+    for (const f of usedFonts) fontCSS += fontFaceStyleFor(f);
+  }
+
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"`
     + ` width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
+    + (fontCSS ? `<style>${fontCSS}</style>` : '')
     + (defs ? `<defs>${defs}</defs>` : '') + body + '</svg>';
 }
 
@@ -976,7 +1013,7 @@ loadOverrides();
    values + one downscaled data URL; never leaves the browser) and re-applied
    on every plan build, so both survive regeneration, presets and QA fixes.
    ========================================================================= */
-const mediaStore = { frame: null, qr: null };
+const mediaStore = { frame: null, qr: null, icon: null };
 const FRAME_SLOTS = {
   'left-panel': 'لوح جانبي (يسار)',
   'top-band': 'شريط علوي',
@@ -990,6 +1027,8 @@ function saveMedia() {
     else localStorage.removeItem('mirsam.frame');
     if (mediaStore.qr) localStorage.setItem('mirsam.qr', JSON.stringify(mediaStore.qr));
     else localStorage.removeItem('mirsam.qr');
+    if (mediaStore.icon) localStorage.setItem('mirsam.icon', JSON.stringify(mediaStore.icon));
+    else localStorage.removeItem('mirsam.icon');
   } catch { /* storage full — the asset stays for this session only */ }
 }
 function loadMedia() {
@@ -1001,6 +1040,11 @@ function loadMedia() {
     const v = JSON.parse(localStorage.getItem('mirsam.qr') || 'null');
     if (v && v.text) mediaStore.qr = v;
   } catch { /* corrupt — start without a code */ }
+  try {
+    const v = JSON.parse(localStorage.getItem('mirsam.icon') || 'null');
+    /* only accept a name the vendored library actually ships */
+    if (v && v.name && typeof TABLER_ICONS !== 'undefined' && TABLER_ICONS[v.name]) mediaStore.icon = v;
+  } catch { /* corrupt — start without an icon */ }
 }
 loadMedia();
 
@@ -1011,6 +1055,50 @@ function frameRectFor(slot, W, H) {
   if (slot === 'bottom-band') { const h = Math.round(H * 0.28); return [0, H - h, W, h]; }
   if (slot === 'corner') { const s = Math.round(Math.min(W, H) * 0.34); return [0, 0, s, s]; }
   return [0, 0, Math.round(W * 0.42), H];          /* left-panel (default) */
+}
+
+/* measured box of a text element — lets a new layer dodge every word */
+function typeBBox(el) {
+  const maxW = el.maxW || 4000;
+  const lines = wrapLines(el.text, maxW, el.font, el.size, el.weight);
+  measureCtx.font = `${el.weight} ${el.size}px ${el.font}, "Segoe UI", Tahoma, Arial, sans-serif`;
+  const w = Math.min(maxW, Math.max(...lines.map(l => measureCtx.measureText(l).width)));
+  const x0 = el.align === 'center' ? el.x - w / 2 : (el.align === 'left' ? el.x : el.x - w);
+  const lead = el.leading || el.size * 1.34;
+  const h = (lines.length - 1) * lead + el.size * 1.15;
+  const y0 = el.y - el.size * 0.92;
+  return [x0, y0, x0 + w, y0 + h];
+}
+
+/* where a decorative icon can live: try the requested slot first, then a
+   fixed tour of the canvas corners/edges, and take the spot that touches
+   nothing (photo · QR · CTA · words · panels). Never returns a placement
+   that sits on a word — if every slot is busy it picks the least crowded
+   one rather than silently dropping the icon. */
+const ICON_SLOTS = ['top-right', 'top-left', 'bottom-right', 'bottom-left',
+  'mid-right', 'mid-left', 'top-center', 'bottom-center'];
+
+function iconRectFor(slot, W, H, short, m, avoid) {
+  const s = Math.round(clamp(short * 0.11, 48, 170));
+  const midY = Math.round((H - s) / 2), midX = Math.round((W - s) / 2);
+  const spots = {
+    'top-right': [W - m - s, m], 'top-left': [m, m],
+    'bottom-right': [W - m - s, H - m - s], 'bottom-left': [m, H - m - s],
+    'mid-right': [W - m - s, midY], 'mid-left': [m, midY],
+    'top-center': [midX, m], 'bottom-center': [midX, H - m - s]
+  };
+  const order = [slot, ...ICON_SLOTS.filter(k => k !== slot)];
+  const list = (avoid || []).filter(Boolean);
+  let best = null, bestHits = Infinity, bestSlot = null;
+  for (const k of order) {
+    const p = spots[k];
+    if (!p) continue;
+    const r = [p[0], p[1], s, s];
+    const hits = list.reduce((n, b) => n + (overlaps(r, b) ? 1 : 0), 0);
+    if (hits < bestHits) { best = r; bestHits = hits; bestSlot = k; if (!hits) break; }
+  }
+  /* report where it ACTUALLY settled — the UI must never claim a busy slot */
+  return best ? { rect: best, slot: bestSlot } : null;
 }
 
 /* bbox used to keep decoration out of the picture */
@@ -1270,6 +1358,11 @@ async function generate() {
   $('generate').disabled = true;
   $('generate').textContent = 'جارٍ التوليد…';
   try {
+    /* local Google font: register + base64 it before any render (P4) */
+    if (typeof ensureLocalFont === 'function') {
+      try { await ensureLocalFont(($('font') && $('font').value) || 'Tahoma'); }
+      catch { /* system fallback renders */ }
+    }
     do {
       pending = false;
       const res = await runLoop(briefFromUI(), { autoFix: $('autoFix').checked });

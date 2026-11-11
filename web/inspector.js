@@ -27,13 +27,14 @@ const ROLE_NAMES = {
   'focal-deco': 'الزخرفة',
   'trim-frame': 'إطار القصّ',
   'image-frame': 'إطار الصورة',
-  qr: 'رمز QR'
+  qr: 'رمز QR',
+  icon: 'أيقونة'
 };
 
 const KIND_NAMES = {
   type: 'نص', rect: 'مستطيل', roundedRect: 'مستطيل مدوّر', ellipse: 'قرص',
   ring: 'حلقة', line: 'خط', outline: 'إطار',
-  imageFrame: 'إطار صورة', qr: 'رمز QR'
+  imageFrame: 'إطار صورة', qr: 'رمز QR', icon: 'أيقونة'
 };
 
 const KIND_COLORS = ['rect', 'roundedRect', 'ellipse'];

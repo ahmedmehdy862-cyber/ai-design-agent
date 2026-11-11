@@ -6,7 +6,9 @@
 <title>مِرسم — وكيل تصميم بالقياس</title>
 <meta name="description" content="وكيل تصميم يولّد بوسترات احترافية عربية من موجز، ثم يقيس النتيجة ويصحّحها ذاتيًا — بالكامل في متصفحك.">
 <meta name="theme-color" content="#0b0e13">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=16">
+<link rel="stylesheet" href="styles-creative.css?v=16">
+<link rel="stylesheet" href="styles-knowledge.css?v=16">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230b0e13'/><circle cx='11' cy='11' r='5' fill='%23f4a417'/><rect x='16' y='18' width='10' height='4' rx='2' fill='%23e9ecf2'/></svg>">
 </head>
 <body>
@@ -191,6 +193,12 @@
             <option value="Arial">Arial</option>
             <option value="Verdana">Verdana</option>
             <option value="Georgia">Georgia</option>
+            <optgroup label="خطوط مِرسم المحلية — عربي بلا إنترنت">
+              <option value="Cairo">Cairo — هندسي معاصر</option>
+              <option value="Tajawal">Tajawal — عصري واضح</option>
+              <option value="Almarai">Almarai — ثقيل مقروء</option>
+              <option value="Amiri">Amiri — نسخي كلاسيكي</option>
+            </optgroup>
           </select>
         </label>
         <label class="field">
@@ -308,6 +316,7 @@
 
   <nav class="tabs" role="tablist" aria-label="أقسام الاستوديو">
     <button class="tab on" data-tab="brief" type="button">فهم الوصف</button>
+    <button class="tab" data-tab="creative" type="button">الذكاء الإبداعي</button>
     <button class="tab" data-tab="refs" type="button">مراجع تصميمية</button>
     <button class="tab" data-tab="knowledge" type="button">مبادئ ونظرية الألوان</button>
     <button class="tab" data-tab="media" type="button">استوديو ميديا</button>
@@ -369,14 +378,116 @@
       </div>
     </div>
 
-    <!-- ---- design references ---- -->
+    <!-- ---- creative intelligence (P2) ---- -->
+    <div class="pane" data-pane="creative">
+      <div class="cr-grid">
+
+        <div class="cr-col">
+          <span class="mini-title">1 · محلّل الموجز الإبداعي — 12 حقلًا (محلي)</span>
+          <p class="hint">حلّل وصفك الحرّ إلى موجز منظَّم، راجع الحقول وعدّلها، ثم «اعتمد الموجز» — ما له مقابل في التصميم يُطبَّق، وما لا مقابل له يبقى مرجعًا للمفاهيم.</p>
+          <div class="row">
+            <button id="crAnalyze" class="btn" type="button">حلّل الوصف</button>
+            <button id="crApply" class="btn btn-primary" type="button">اعتمد الموجز وولّد</button>
+          </div>
+          <div id="crBriefFields" class="cr-fields"></div>
+        </div>
+
+        <div class="cr-col">
+          <span class="mini-title">2 · ثلاثة مفاهيم مختلفة جوهريًا</span>
+          <p class="hint">كل مفهوم يغيّر التكوين والنمط والزخرفة والباليتة معًا، ومبرره يربطه بجمهور وهدف موجزك — لا بذوق عام.</p>
+          <div class="row">
+            <button id="crGenerate" class="btn btn-primary" type="button">ولّد 3 مفاهيم</button>
+            <button id="crAiConcepts" class="btn" type="button" style="display:none">ولّد المفاهيم بالذكاء الاصطناعي</button>
+          </div>
+          <p id="crAiHint" class="hint">توليد المفاهيم بالذكاء الاصطناعي اختياري ويظهر عند حفظ مفتاح في «فهم الوصف» — بدونه تعمل الأداة كاملة محليًا.</p>
+          <div id="crConcepts" class="cr-concepts"></div>
+        </div>
+
+        <div class="cr-col">
+          <span class="mini-title">3 · وكيل التوجيه الفني — 8 محاور + مدارس</span>
+          <p class="hint">اقتراحات من القياس الحالي ونوع التصميم وموجزك: اعتمَد محورًا محورًا أو «الكل»، وعدّل أي قيمة قبل الإنشاء — لا شيء يُنشأ بلا أمرك.</p>
+          <div id="crSchools" class="chips cr-schools"></div>
+          <div id="crAxes" class="cr-axes"></div>
+          <div class="row">
+            <button id="crAdoptAll" class="btn btn-primary" type="button">اعتمد المحاور الثمانية وولّد</button>
+          </div>
+        </div>
+
+      </div>
+      <div id="crStatus" class="status"></div>
+    </div>
+
+    <!-- ---- design references: built-in + user library (P3) ---- -->
     <div class="pane" data-pane="refs">
       <p id="refNote" class="ref-note">اختر مرجعًا مُجرٍّبًا: يضبط النوع والتكوين والباليتة وزن الخط دفعة واحدة.</p>
       <div class="refs" id="refsGrid"></div>
+
+      <span class="mini-title lib-space">مكتبتي البصرية — مراجعك الخاصة (محلي ١٠٠٪)</span>
+      <p class="hint">الصورة تُصغَّر إلى ٦٤٠ بكسل وتُحفظ في متصفحك فقط — لا رفع لأي خادم. نظّمها بوسوم ومجموعة ثم استدعِها بالبحث.</p>
+
+      <div class="lib-form">
+        <div class="row">
+          <label class="field"><span>الصورة</span>
+            <input id="libFile" type="file" accept="image/*"></label>
+          <label class="field"><span>الاسم</span>
+            <input id="libName" type="text" maxlength="50" placeholder="مثال: غلاف مجلة ١٩٦٠" autocomplete="off"></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>وسوم <em>(مفصولة بـ ،)</em></span>
+            <input id="libTags" type="text" maxlength="90" placeholder="تحريري، شبكة، أصفر" autocomplete="off"></label>
+          <label class="field"><span>المجموعة</span>
+            <input id="libGroup" list="libGroups" type="text" maxlength="30" placeholder="أمثلة سابقة أو مجموعة جديدة" autocomplete="off">
+            <datalist id="libGroups"></datalist></label>
+          <button id="libAdd" class="btn btn-primary" type="button">أضف إلى مكتبتي</button>
+        </div>
+        <div id="libStatus" class="status"></div>
+      </div>
+
+      <div class="row lib-bar">
+        <input id="libSearch" type="search" placeholder="ابحث في مكتبتي بالاسم أو الوسم أو المجموعة…" autocomplete="off">
+        <div id="libFilters" class="chips"></div>
+      </div>
+      <div id="libGrid" class="refs lib-grid"></div>
+
+      <details class="lib-vision">
+        <summary>◉ مُحلّل المراجع بالرؤية — يقرأ صورة مرجعية ويصف أسلوبها وباليتتها</summary>
+        <p id="visionHint" class="hint">المُحلّل بالرؤية مساره Gemini ويحتاج مفتاحًا محفوظًا محليًا (اختياري في «فهم الوصف»). بلا مفتاح تبقى بقيّة المكتبة تعمل كاملة محليًا.</p>
+        <div class="row">
+          <input id="visionFile" type="file" accept="image/*">
+          <input id="visionQ" type="text" maxlength="120" placeholder="سؤالك عن المرجع (اختياري)" autocomplete="off">
+          <button id="visionRun" class="btn" type="button">حلّل الصورة</button>
+        </div>
+        <div id="visionOut" class="status"></div>
+      </details>
     </div>
 
-    <!-- ---- knowledge ---- -->
+    <!-- ---- knowledge: instant search + local additions + retrieval ---- -->
     <div class="pane" data-pane="knowledge">
+      <div class="kn-toolbar">
+        <input id="knSearch" type="search" placeholder="ابحث في المعرفة فورًا… (مثال: تباين، لون، تسلسل، طبقات)" autocomplete="off">
+        <input id="knDesc" type="text" placeholder="أو الوِصْف: استرجاع المعرفة المناسبة لوصفك" autocomplete="off">
+        <button id="knRetrieve" class="btn" type="button">استرجاع حسب الوصف</button>
+      </div>
+      <div id="knResults" class="kn-hits" hidden></div>
+
+      <details class="kn-add">
+        <summary>＋ أضف معرفة من وقتك (تُحفظ محليًا في متصفحك)</summary>
+        <div class="row">
+          <label class="field"><span>العنوان</span>
+            <input id="knTitle" type="text" maxlength="60" placeholder="مثال: قاعدة الستوري الآمنة"></label>
+          <label class="field"><span>القاعدة <em>(اختياري)</em></span>
+            <input id="knRule" type="text" maxlength="120" placeholder="الحدّ الرقمي المقيس"></label>
+        </div>
+        <label class="field"><span>الشرح</span>
+          <textarea id="knBody" rows="2" maxlength="400" placeholder="اشرح القاعدة بلغتك…"></textarea></label>
+        <label class="field"><span>وسوم <em>(مفصولة بـ ،)</em></span>
+          <input id="knTags" type="text" maxlength="80" placeholder="ستوري، هامش، حركة" autocomplete="off"></label>
+        <div class="row">
+          <button id="knAdd" class="btn btn-primary" type="button">أضف إلى قاعدتي</button>
+          <span id="knLocalCount" class="hint"></span>
+        </div>
+      </details>
+
       <div id="knowledgeBox" class="kn-wrap"></div>
     </div>
 
@@ -427,6 +538,15 @@
             <button id="frameClear" class="btn" type="button">أزل الإطار</button>
           </div>
 
+          <span class="mini-title media-space">بحث صور مرخّصة — Openverse (بلا مفتاح)</span>
+          <div class="row">
+            <input id="ovQ" type="search" placeholder="مثال: geometric pattern · texture · desert · typography" autocomplete="off">
+            <button id="ovSearch" class="btn btn-primary" type="button">ابحث في Openverse</button>
+          </div>
+          <div id="ovStatus" class="status"></div>
+          <div id="ovGrid" class="refs ov-grid"></div>
+          <p class="hint">نتائج حقيقية من Openverse (أرشيف صور مرخّصة تجاريًا: Flickr · Wikimedia · StockSnap · …) بلا مفتاح وبلا حساب. كل نتيجة تعرض الرخصة واسم المُصوِّر ورابط المصدر؛ زر «استخدمها في الإطار» ينزّل الصورة إلى تصميمك ويخزّنها محليًا كما لو رفعتها من جهازك. بلا اتصال تظهر رسالة صريحة ولا تُخترع أي نتيجة.</p>
+
           <span class="mini-title media-space">رمز QR داخل التصميم</span>
           <div class="row">
             <label class="field">
@@ -437,6 +557,33 @@
           <div class="row">
             <button id="qrAdd" class="btn btn-primary" type="button">أضف رمز QR</button>
             <button id="qrClear" class="btn" type="button">أزل الرمز</button>
+          </div>
+
+          <span class="mini-title media-space">أيقونة تزيينية — مكتبة tabler المحلية (٦٠ أيقونة)</span>
+          <div class="row">
+            <input id="iconSearch" type="search" placeholder="ابحث بالاسم: heart · star · rocket …" autocomplete="off">
+            <label class="field">
+              <span>الموضع (يتحرّك تلقائيًا لو كان مشغولًا)</span>
+              <select id="iconSlot">
+                <option value="top-right">أعلى اليمين</option>
+                <option value="top-left">أعلى اليسار</option>
+                <option value="bottom-right">أسفل اليمين</option>
+                <option value="bottom-left">أسفل اليسار</option>
+                <option value="mid-right">وسط اليمين</option>
+                <option value="mid-left">وسط اليسار</option>
+                <option value="top-center">أعلى الوسط</option>
+                <option value="bottom-center">أسفل الوسط</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>لون الأيقونة</span>
+              <input id="iconColor" type="color" value="#f4a417">
+            </label>
+          </div>
+          <div id="iconGrid" class="icon-grid"></div>
+          <div class="row">
+            <button id="iconClear" class="btn" type="button">أزل الأيقونة</button>
+            <span id="iconStatus" class="status"></span>
           </div>
 
           <div id="mediaStatus" class="status"></div>
@@ -576,15 +723,18 @@
   <p>مبني على مبادئ تصميم قابلة للقياس: تسلسل بصري، تباين WCAG، شبكة وهوامش، لون ٦٠-٣٠-١٠، وقواعد الخط العربي.</p>
 </footer>
 
-<script src="vendor/pdf-lib.min.js?v=9"></script>
-<script src="vendor/ag-psd.js?v=9"></script>
-<script src="vendor/gif.js?v=9"></script>
-<script src="vendor/qrcode.js?v=9"></script>
-<script src="knowledge.js?v=9"></script>
-<script src="export.js?v=9"></script>
-<script src="app.js?v=9"></script>
-<script src="carousel.js?v=9"></script>
-<script src="inspector.js?v=9"></script>
-<script src="studio.js?v=9"></script>
+<script src="vendor/pdf-lib.min.js?v=16"></script>
+<script src="vendor/ag-psd.js?v=16"></script>
+<script src="vendor/gif.js?v=16"></script>
+<script src="vendor/qrcode.js?v=16"></script>
+<script src="fonts.js?v=16"></script>
+<script src="vendor/tabler-icons.js?v=16"></script>
+<script src="knowledge.js?v=16"></script>
+<script src="export.js?v=16"></script>
+<script src="app.js?v=16"></script>
+<script src="carousel.js?v=16"></script>
+<script src="inspector.js?v=16"></script>
+<script src="studio.js?v=16"></script>
+<script src="creative.js?v=16"></script>
 </body>
 </html>
