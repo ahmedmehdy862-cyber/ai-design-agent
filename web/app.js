@@ -418,8 +418,12 @@ function makePlan(b) {
 
 /* =========================================================================
    element overrides — per-element designer edits
-   key: el.key  ·  value: { color, opacity, sizeF, weight, align, hidden }
+   key: el.key  ·  value: { color, opacity, sizeF, weight, align, hidden,
+                            dx, dy, sw, sh, locked }
+   plus overrides.__order — the designer's z-stack (a full key permutation).
    Applied on every plan build, so edits survive regeneration and QA fixes.
+   Every field is absolute over the planned base, so the second apply pass
+   inside runLoop (after a QA fix) changes nothing the first one didn't.
    ========================================================================= */
 function applyOverrides(list) {
   for (const el of list) {
@@ -428,7 +432,13 @@ function applyOverrides(list) {
         size: el.size || 0,
         leading: el.leading || 0,
         weight: el.weight || 0,
-        opacity: el.opacity != null ? el.opacity : null
+        opacity: el.opacity != null ? el.opacity : null,
+        /* P7: the planned anchor, captured before any edit — position and
+           size offsets are computed from it (idempotent by construction) */
+        pos: el.kind === 'type' ? [el.x, el.y]
+          : el.rect ? el.rect.slice()
+          : el.kind === 'ring' ? [el.cx, el.cy]
+          : el.kind === 'line' ? [el.x1, el.y1, el.x2, el.y2] : null
       };
     }
     const o = overrides[el.key];
@@ -451,6 +461,38 @@ function applyOverrides(list) {
       if (o.weight) el.weight = o.weight;
       if (o.align) el.align = o.align;
     }
+
+    /* P7: موضع — a relative offset from the planned anchor, so the designer's
+       placement beats an automatic move the same way sizeF beats a shrink */
+    if ((o.dx || o.dy) && el.base.pos) {
+      const dx = o.dx || 0, dy = o.dy || 0, p = el.base.pos;
+      if (el.kind === 'type') { el.x = p[0] + dx; el.y = p[1] + dy; }
+      else if (el.rect) el.rect = [p[0] + dx, p[1] + dy, el.rect[2], el.rect[3]];
+      else if (el.kind === 'ring') { el.cx = p[0] + dx; el.cy = p[1] + dy; }
+      else if (el.kind === 'line') { el.x1 = p[0] + dx; el.y1 = p[1] + dy; el.x2 = p[2] + dx; el.y2 = p[3] + dy; }
+    }
+    /* P7: أبعاد — scale factors of the planned box (never multiplied into a
+       previously scaled value: always re-derived from base) */
+    if (el.rect && el.base.pos && ((o.sw && o.sw !== 1) || (o.sh && o.sh !== 1))) {
+      const sw = o.sw || 1, sh = o.sh || 1;
+      el.rect = [el.rect[0], el.rect[1],
+        Math.max(8, Math.round(el.base.pos[2] * sw)),
+        Math.max(8, Math.round(el.base.pos[3] * sh))];
+    }
+  }
+
+  /* P7: ترتيب الطبقات — the designer's z-stack, painted in array order.
+     A stale order (layers that no longer exist) simply skips those keys;
+     a brand-new layer takes its natural slot and keeps the plan's position
+     relative to the rest of the stack. */
+  const ord = overrides.__order;
+  if (Array.isArray(ord) && ord.length) {
+    const rank = new Map(ord.map((k, i) => [k, i]));
+    const nat = new Map(list.map((e, i) => [e.key, i]));
+    const score = e => (rank.has(e.key) ? rank.get(e.key) : (nat.get(e.key) || 0));
+    const arr = list.map((e, i) => ({ s: score(e), i, e })).sort((a, b) => (a.s - b.s) || (a.i - b.i));
+    list.length = 0;
+    for (const t of arr) list.push(t.e);
   }
 }
 
@@ -1012,11 +1054,21 @@ function applyFixes(plan, issues) {
   const [W, H] = plan.canvas, margin = plan.grid.margin;
   const find = role => plan.elements.find(e => e.role === role);
 
+  /* P7: a locked layer belongs to the designer — the automatic pass reports
+     it honestly but never edits it (same contract as an override: the loop
+     ends on MAX_RETRIES/UNIMPROVABLE instead of silently winning) */
+  const locked = el => !!(el && el.key && overrides[el.key] && overrides[el.key].locked);
+  const held = (issue, el) => fixes.push({
+    issue: issue.id,
+    action: `مقفل: «${TYPE_ROLE_AR[el.role] || el.role}» تُرك كما هو — ألغِ القفل ليُصلَح تلقائيًا`
+  });
+
   for (const issue of issues) {
     if (issue.id === 'edge-spill') {
-      let moved = 0;
+      let moved = 0, blocked = 0;
       for (const el of plan.elements) {
         if (el.bleed) continue;
+        if (locked(el)) { blocked++; continue; }
         if (el.kind === 'type') {
           if (el.x > W - margin) { el.x = W - margin; moved++; }
           if (!el.maxW) el.maxW = W - margin * 2;
@@ -1029,28 +1081,35 @@ function applyFixes(plan, issues) {
           if (el.cy - el.r < margin) { el.cy = margin + el.r; moved++; }
         }
       }
-      fixes.push({ issue: issue.id, action: `سحب ${moved} عنصرًا إلى المنطقة الآمنة` });
+      fixes.push({ issue: issue.id, action: `سحب ${moved} عنصرًا إلى المنطقة الآمنة${blocked ? ` · تُرك ${blocked} مقفلًا` : ''}` });
     } else if (issue.id === 'clutter') {
+      let did = false;
       const band = find('accent-band');
-      if (band) { const [x, y, w, h] = band.rect; const nh = Math.max(24, Math.round(h * 0.6)); band.rect = [x, H - nh, w, nh]; }
+      if (band && !locked(band)) { const [x, y, w, h] = band.rect; const nh = Math.max(24, Math.round(h * 0.6)); band.rect = [x, H - nh, w, nh]; did = true; }
+      else if (band) held(issue, band);
       const decoEl = find('focal-deco');
-      if (decoEl && decoEl.rect) { const [x, y, w, h] = decoEl.rect; const n = Math.max(40, Math.round(w * 0.7)); decoEl.rect = [x, y, n, n]; }
-      fixes.push({ issue: issue.id, action: 'تصغير الشريط/الزخرفة لاستعادة المساحة السالبة' });
+      if (decoEl && decoEl.rect && !locked(decoEl)) { const [x, y, w, h] = decoEl.rect; const n = Math.max(40, Math.round(w * 0.7)); decoEl.rect = [x, y, n, n]; did = true; }
+      else if (decoEl) held(issue, decoEl);
+      if (did) fixes.push({ issue: issue.id, action: 'تصغير الشريط/الزخرفة لاستعادة المساحة السالبة' });
     } else if (issue.id === 'low-contrast') {
       const bg = plan.palette.bg, better = readableInk(bg);
       for (const role of ['headline', 'subhead', 'cta-text']) {
         const el = find(role);
+        if (el && locked(el)) { held(issue, el); continue; }
         if (el && contrast(el.color, bg) < 4.5) { el.color = better; fixes.push({ issue: issue.id, action: `${role} → ${better}` }); }
       }
     } else if (issue.id === 'focal-ambiguity') {
+      let did = false;
       const he = find('headline');
-      if (he) { he.size = Math.round(he.size * 1.15); he.leading = Math.round(he.size * 1.34); }
+      if (he && locked(he)) held(issue, he);
+      else if (he) { he.size = Math.round(he.size * 1.15); he.leading = Math.round(he.size * 1.34); did = true; }
       const decoEl = find('focal-deco');
-      if (decoEl && decoEl.rect) { const [x, y, w, h] = decoEl.rect; decoEl.rect = [x, y, Math.round(w * 0.8), Math.round(h * 0.8)]; }
-      fixes.push({ issue: issue.id, action: 'تكبير العنوان 15% وتصغير الزخرفة 20%' });
+      if (decoEl && decoEl.rect && !locked(decoEl)) { decoEl.rect = [decoEl.rect[0], decoEl.rect[1], Math.round(decoEl.rect[2] * 0.8), Math.round(decoEl.rect[3] * 0.8)]; did = true; }
+      if (did) fixes.push({ issue: issue.id, action: 'تكبير العنوان 15% وتصغير الزخرفة 20%' });
     } else if (issue.id === 'weak-hierarchy') {
       const he = find('headline');
-      if (he) {
+      if (he && locked(he)) held(issue, he);
+      else if (he) {
         const before = he.size;
         he.size = Math.round(he.size * 1.12);
         he.leading = Math.round(he.size * 1.34);
@@ -1063,32 +1122,42 @@ function applyFixes(plan, issues) {
       if (rights.length > 1) {
         const edges = rights.map(e => typeBBox(e)[2]).sort((a, b) => a - b);
         const med = Math.round(edges[Math.floor(edges.length / 2)]);
-        let n = 0;
+        let n = 0, blocked = 0;
         for (const e of rights) {
           const d = Math.round(med - typeBBox(e)[2]);
-          if (Math.abs(d) > 6) { e.x += d; n++; }
+          if (Math.abs(d) <= 6) continue;
+          if (locked(e)) { blocked++; continue; }
+          e.x += d; n++;
         }
-        fixes.push({ issue: issue.id, action: `محاذاة ${n} عنصرًا إلى خط اليمين ${med}px` });
+        fixes.push({ issue: issue.id, action: `محاذاة ${n} عنصرًا إلى خط اليمين ${med}px${blocked ? ` · تُرك ${blocked} مقفلًا` : ''}` });
       }
     } else if (issue.id === 'text-overflow') {
       const el = plan.elements[issue.i];
       if (el && el.kind === 'type') {
-        /* pull the anchor inside the measure, then shrink until the block fits */
-        const nx = clamp(el.x, margin, W - margin);
-        if (nx !== el.x) el.x = Math.round(nx);
-        for (let k = 0; k < 12 && el.size > 10; k++) {
-          const b = typeBBox(el);
-          const out = Math.max(margin - b[0], margin - b[1], b[2] - (W - margin), b[3] - (H - margin));
-          if (out <= 2) break;
-          el.size = Math.max(10, Math.round(el.size * 0.92));
-          if (el.leading) el.leading = Math.max(8, Math.round(el.leading * 0.92));
+        if (locked(el)) { held(issue, el); }
+        else {
+          /* pull the anchor inside the measure, then shrink until the block fits */
+          const nx = clamp(el.x, margin, W - margin);
+          if (nx !== el.x) el.x = Math.round(nx);
+          for (let k = 0; k < 12 && el.size > 10; k++) {
+            const b = typeBBox(el);
+            const out = Math.max(margin - b[0], margin - b[1], b[2] - (W - margin), b[3] - (H - margin));
+            if (out <= 2) break;
+            el.size = Math.max(10, Math.round(el.size * 0.92));
+            if (el.leading) el.leading = Math.max(8, Math.round(el.leading * 0.92));
+          }
+          fixes.push({ issue: issue.id, action: `«${TYPE_ROLE_AR[el.role] || el.role}» داخل الصندوق — حجم ${el.size}px` });
         }
-        fixes.push({ issue: issue.id, action: `«${TYPE_ROLE_AR[el.role] || el.role}» داخل الصندوق — حجم ${el.size}px` });
       }
     } else if (issue.id === 'layer-overlap') {
       const A = plan.elements[issue.a], B = plan.elements[issue.b];   /* upper · lower */
-      const mover = (B && B.kind === 'type') ? B : ((A && A.kind === 'type') ? A : null);
-      if (mover) {
+      /* move the lower one first; if the designer locked it, lift the upper
+         one instead — only when both are locked do we hold and say so */
+      const cands = [B, A].filter(x => x && x.kind === 'type');
+      const mover = cands.find(x => !locked(x)) || null;
+      if (!mover) {
+        if (cands.length) held(issue, cands[0]);
+      } else {
         const down = mover === B;
         const gap = Math.round(Math.min(W, H) * 0.012) + 6;
         for (let k = 0; k < 8; k++) {
@@ -1227,6 +1296,44 @@ function loadOverrides() {
   } catch { /* corrupt value — start clean */ }
 }
 loadOverrides();
+
+/* P7: undo/redo — a session-only stack of override snapshots over the same
+   durable localStorage copy. It never survives a refresh on purpose: history
+   you cannot see is history you would not trust. */
+const undoStack = [], redoStack = [];
+const UNDO_MAX = 60;
+let undoTag = '', undoTagAt = 0;
+
+function pushUndo(tag) {
+  const now = Date.now();
+  /* one slider drag = one step, not sixty */
+  if (tag && tag === undoTag && now - undoTagAt < 900) { undoTagAt = now; return; }
+  undoTag = tag || '';
+  undoTagAt = now;
+  undoStack.push(JSON.stringify(overrides));
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack.length = 0;              /* a new edit invalidates the old future */
+}
+function applySnapshot(snap) {
+  const o = JSON.parse(snap);
+  for (const k of Object.keys(overrides)) delete overrides[k];
+  Object.assign(overrides, o);
+  saveOverrides();
+}
+function undoEdits() {
+  if (!undoStack.length) return false;
+  redoStack.push(JSON.stringify(overrides));
+  applySnapshot(undoStack.pop());
+  undoTag = '';
+  return true;
+}
+function redoEdits() {
+  if (!redoStack.length) return false;
+  undoStack.push(JSON.stringify(overrides));
+  applySnapshot(redoStack.pop());
+  undoTag = '';
+  return true;
+}
 
 /* =========================================================================
    placed media — an image frame and a QR code inside the design.

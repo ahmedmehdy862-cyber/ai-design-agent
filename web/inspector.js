@@ -63,6 +63,7 @@ function inspStatus(msg, cls = '') {
 
 /* ---------------- overrides ---------------- */
 function setOverride(key, patch, label) {
+  pushUndo(key + ':' + Object.keys(patch).join(','));   /* P7: one step per edit */
   const cur = overrides[key] || (overrides[key] = {});
   Object.assign(cur, patch);
   for (const k of Object.keys(cur)) {
@@ -76,12 +77,13 @@ function setOverride(key, patch, label) {
 }
 
 function resetAll() {
+  if (Object.keys(overrides).length) pushUndo('reset-all');   /* P7: a reset is undoable */
   for (const k of Object.keys(overrides)) delete overrides[k];
   saveOverrides();   /* B8: clear the persisted copy too */
   layerSig = '';
   selectedKey = null;
   renderLayers(true);
-  inspStatus('أُعيد كل العناصر لقيم التصميم الأصلية', 'ok');
+  inspStatus('أُعيد كل العناصر لقيم التصميم الأصلية — تراجع Ctrl+Z يُرجعها', 'ok');
   generate();
 }
 
