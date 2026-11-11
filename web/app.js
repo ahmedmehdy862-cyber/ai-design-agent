@@ -298,22 +298,24 @@ function makePlan(b) {
     const itemPt = even(clamp(subPt * 0.95, 15, 36));
     itemSize = itemPt;
     itemLead = Math.round(itemPt * 1.95 * sp);
-    let maxItems = 5;
-    if (frameBottomBand) {
-      /* keep the list above the photo (and above the CTA when there is one) */
-      const limit = (chipY != null) ? chipY - Math.round(m * 0.4) : frameBottomBand - m;
-      maxItems = clamp(Math.floor((limit - cursor) / itemLead), 0, 5);
-    }
-    itemsShown = Math.min(maxItems, b.items.length);
-    b.items.slice(0, maxItems).forEach((it, i) => {
+    /* the list honors every floor above it: photo band · CTA chip · canvas margin */
+    let itemLimit = H - m;
+    if (frameBottomBand) itemLimit = Math.min(itemLimit, frameBottomBand - m);
+    if (chipY != null) itemLimit = Math.min(itemLimit, chipY - Math.round(m * 0.4));
+    for (const it of b.items.slice(0, 5)) {
+      const txt = '•  ' + it;
+      /* a wrapped item owns its rows — otherwise line 2 lands on the next item */
+      const blockH = wrapLines(txt, itemsW, b.font, itemPt, 400).length * itemLead;
+      if (cursor + blockH > itemLimit) break;      /* no room: stop, never print over */
       elements.push({
-        role: 'item', kind: 'type', x: right, y: cursor + i * itemLead, text: '•  ' + it,
+        role: 'item', kind: 'type', x: right, y: cursor, text: txt,
         align: 'right', font: b.font, size: itemPt,
         color: contrast(ink, bg) >= 4.5 ? ink : readableInk(bg), weight: 400,
         opacity: 0.92, leading: itemLead, maxW: itemsW
       });
-    });
-    cursor += maxItems * itemLead;
+      cursor += blockH;
+      itemsShown++;
+    }
   }
 
   if (genre.badge) {
@@ -355,7 +357,7 @@ function makePlan(b) {
      photo, a code, the CTA or any word: it slides to a free slot ---- */
   if (mediaStore.icon && typeof TABLER_ICONS !== 'undefined' && TABLER_ICONS[mediaStore.icon.name]) {
     const avoid = [frame, qrSize ? [m, H - m - qrSize, qrSize, qrSize] : null, chipRect]
-      .concat(elements.filter(e => e.kind === 'type').map(typeBBox))
+      .concat(elements.filter(e => e.kind === 'type').map(e => boxWH(typeBBox(e))))
       .concat(elements.filter(e => e.rect && e.kind !== 'type').map(e => e.rect));
     const place = iconRectFor(mediaStore.icon.slot || 'top-right', W, H, short, m, avoid);
     if (place) {
@@ -408,7 +410,7 @@ function makePlan(b) {
       ...(frame ? [`إطار صورة: ${FRAME_SLOTS[mediaStore.frame.slot || 'left-panel']} — الصورة تُقصّ داخله وهي طبقة full-bleed، والزخرفة تنحني عنده`] : []),
       ...(qrSize ? [`رمز QR بحجم ${arNumLocal(qrSize)}px أسفل اليسار مع منطقة هدوء بيضاء داخل الصندوق`] : []),
       ...(itemsShown < (b.items || []).length
-        ? [`الشريط السفلي يقتطع القائمة: عُرض ${arNumLocal(itemsShown)} من ${arNumLocal(b.items.length)} بنودًا — غيّر موضع الإطار لاستعادة الباقي`]
+        ? [`المساحة السفلية تقتطع القائمة: عُرض ${arNumLocal(itemsShown)} من ${arNumLocal(b.items.length)} بنودًا — كبّر المساحة أو قلّل البنود أو غيّر موضع الإطار/الزر`]
         : [])
     ]
   };
@@ -483,22 +485,39 @@ function decor(kind, a) {
   return out;
 }
 
-/* ---------------- text wrap ---------------- */
+/* ---------------- text wrap — one measurement stack: the box model, the
+   renderer and the export all measure with the same family chain, so what
+   the diagnosis predicts is exactly what the SVG draws ---------------- */
 const measureCanvas = document.createElement('canvas');
 const measureCtx = measureCanvas.getContext('2d');
+const FONT_STACK = `'Segoe UI', Tahoma, Arial, sans-serif`;
+const fontStackFor = f => `${f}, ${FONT_STACK}`;
+/* Arabic diacritics (harakat) ride on their base letter — never cut before one */
+const MARK = /[\u064B-\u0652\u0670\u0653-\u0656]/;
+
 function wrapLines(text, maxW, font, size, weight) {
   if (!text) return [];
-  measureCtx.font = `${weight} ${size}px ${font}, "Segoe UI", Arial, sans-serif`;
-  const words = text.split(/\s+/).filter(Boolean);
+  measureCtx.font = `${weight} ${size}px ${fontStackFor(font)}`;
+  const words = String(text).split(/\s+/).filter(Boolean);
   const lines = [];
   let cur = '';
+  const fits = t => measureCtx.measureText(t).width <= maxW;
   for (const w of words) {
     const test = cur ? cur + ' ' + w : w;
-    if (cur && measureCtx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
-    else cur = test;
+    if (fits(test)) { cur = test; continue; }
+    if (cur) { lines.push(cur); cur = ''; }
+    /* one word wider than its box (Latin URLs · tight Arabic compounds):
+       hard-break by characters — a single word never spills past the measure */
+    let chunk = '';
+    for (const ch of w) {
+      if (chunk && !MARK.test(ch) && measureCtx.measureText(chunk + ch).width > maxW) {
+        lines.push(chunk);
+        chunk = ch;
+      } else chunk += ch;
+    }
+    if (chunk) lines.push(chunk);
   }
-  if (cur) lines.push(cur);
-  return lines.length ? lines : [text];
+  return lines.length ? lines : [String(text)];
 }
 
 /* ---------------- renderer (SVG) ---------------- */
@@ -601,7 +620,7 @@ function renderSVG(plan, opts = {}) {
           + `</filter>`;
       }
       body += `<text x="${el.x}" y="${el.y}" text-anchor="${anchor}" direction="${dir}"${shadow}`
-        + ` font-family="${esc(el.font)}, 'Segoe UI', Tahoma, Arial, sans-serif"`
+        + ` font-family="${esc(fontStackFor(el.font))}"`
         + ` font-size="${el.size}" font-weight="${el.weight}" fill="${el.color}"${op}>`;
       lines.forEach((ln, k) => {
         body += `<tspan x="${el.x}" dy="${k === 0 ? 0 : el.leading}">${esc(ln)}</tspan>`;
@@ -689,6 +708,13 @@ function coverageOf(canvas) {
   const modal = Math.max(...counts.values());
   return +(1 - modal / (S * S)).toFixed(4);
 }
+
+/* Arabic names for geometry diagnoses — the UI never shows raw role ids */
+const TYPE_ROLE_AR = {
+  kicker: 'سطر التمهيد', headline: 'العنوان', subhead: 'العنوان الفرعي',
+  'cta-text': 'نص الزر', 'badge-text': 'نص الشارة', date: 'التاريخ',
+  item: 'بند القائمة', 'quote-mark': 'علامة الاقتباس'
+};
 
 function analyze(canvas, plan, opts = {}) {
   const W = canvas.width, H = canvas.height;
@@ -830,6 +856,73 @@ function analyze(canvas, plan, opts = {}) {
   if (focalDist != null && focalDist > 0.22 && !(plan.elements.some(e => e.bleed)))
     issues.push({ id: 'off-focal', severity: 'NOTE', message: `مركز الثقل بعيد ${(focalDist * 100).toFixed(0)}% عن نقطة التركيز`, hint: 'حرّك العنوان أو الزخرفة نحو ثلث الإطار' });
 
+  /* ---- P5: Arabic typography — geometric overflow + word collisions ----
+     the pixel checks answer "ink sits near the edge"; these answer WHICH
+     block left its box, and which words print on top of which words. */
+  if (plan && Array.isArray(plan.elements)) {
+    const mG = plan.grid && plan.grid.margin ? plan.grid.margin : Math.round(Math.min(W, H) * 0.07);
+    const solid = el => el.opacity == null || el.opacity >= 0.6;  /* watermarks stay decorative */
+    const nameOf = el => TYPE_ROLE_AR[el.role] || el.role;
+    const types = plan.elements.filter(el => el && el.kind === 'type' && !el.hidden && solid(el));
+
+    /* overflow: the box leaves the canvas (FAIL) or the safe area (WARN) */
+    for (const el of types) {
+      const b = typeBBox(el);
+      const offCanvas = Math.max(-b[0], -b[1], b[2] - W, b[3] - H);
+      const offSafe = Math.max(mG - b[0], mG - b[1], b[2] - (W - mG), b[3] - (H - mG));
+      if (offCanvas > 2) {
+        issues.push({
+          id: 'text-overflow', severity: 'FAIL', i: plan.elements.indexOf(el),
+          message: `«${nameOf(el)}» يتجاوز حدود القماش ${Math.round(offCanvas)} بكسل`,
+          hint: 'كتلة نص خارج الإطار فعلًا — صغّر حجمها أو اسحب موضعها للداخل'
+        });
+      } else if (offSafe > 2) {
+        issues.push({
+          id: 'text-overflow', severity: 'WARN', i: plan.elements.indexOf(el),
+          message: `«${nameOf(el)}» يدخل منطقة الأمان ${Math.round(offSafe)} بكسل`,
+          hint: 'اقترب من حافة القص — قلّل الحجم أو تباعد الأسطر'
+        });
+      }
+    }
+
+    /* collisions: content words vs content words · vs the QR · vs the icon.
+       Both boxes inset 10% so a hairline graze (tight spacing at 60%)
+       is never reported as a collision, and only a real stack counts. */
+    const boxOf = el => {
+      if (el.kind === 'type') return typeBBox(el);
+      if (el.rect) return [el.rect[0], el.rect[1], el.rect[0] + el.rect[2], el.rect[1] + el.rect[3]];
+      return null;
+    };
+    const tight = b => {
+      const dx = (b[2] - b[0]) * 0.10, dy = (b[3] - b[1]) * 0.10;
+      return [b[0] + dx, b[1] + dy, b[2] - dx, b[3] - dy];
+    };
+    const targets = plan.elements.filter(el => el && !el.hidden && (
+      (el.kind === 'type' && solid(el)) || el.kind === 'qr' || el.kind === 'icon'));
+    for (let i = 0; i < targets.length; i++) {
+      for (let j = i + 1; j < targets.length; j++) {
+        const A = targets[i], B = targets[j];
+        const bA = boxOf(A), bB = boxOf(B);
+        if (!bA || !bB) continue;
+        const a = tight(bA), c = tight(bB);
+        const ix = Math.min(a[2], c[2]) - Math.max(a[0], c[0]);
+        const iy = Math.min(a[3], c[3]) - Math.max(a[1], c[1]);
+        if (ix <= 2 || iy <= 2) continue;
+        const area = ix * iy;
+        const smaller = Math.min((a[2] - a[0]) * (a[3] - a[1]), (c[2] - c[0]) * (c[3] - c[1]));
+        if (!smaller || area < 0.25 * smaller || area < 600) continue;
+        const upper = bA[1] <= bB[1] ? A : B;
+        const lower = upper === A ? B : A;
+        issues.push({
+          id: 'layer-overlap', severity: 'WARN',
+          a: plan.elements.indexOf(upper), b: plan.elements.indexOf(lower),
+          message: `تداخل ${Math.round(area)} بكسل² — «${nameOf(lower)}» يُطبع فوق «${nameOf(upper)}»`,
+          hint: 'الكلمات لا تُطبَق على كلمات — حرّك المكوّن الأقل أو صغّره'
+        });
+      }
+    }
+  }
+
   return {
     width: W, height: H, blankness,
     inkRatio: +inkRatio.toFixed(4),
@@ -895,6 +988,51 @@ function applyFixes(plan, issues) {
       }
     } else if (issue.id === 'palette-creep') {
       fixes.push({ issue: issue.id, action: 'إعادة حصر الألوان في أدوار الباليتة' });
+    } else if (issue.id === 'text-overflow') {
+      const el = plan.elements[issue.i];
+      if (el && el.kind === 'type') {
+        /* pull the anchor inside the measure, then shrink until the block fits */
+        const nx = clamp(el.x, margin, W - margin);
+        if (nx !== el.x) el.x = Math.round(nx);
+        for (let k = 0; k < 12 && el.size > 10; k++) {
+          const b = typeBBox(el);
+          const out = Math.max(margin - b[0], margin - b[1], b[2] - (W - margin), b[3] - (H - margin));
+          if (out <= 2) break;
+          el.size = Math.max(10, Math.round(el.size * 0.92));
+          if (el.leading) el.leading = Math.max(8, Math.round(el.leading * 0.92));
+        }
+        fixes.push({ issue: issue.id, action: `«${TYPE_ROLE_AR[el.role] || el.role}» داخل الصندوق — حجم ${el.size}px` });
+      }
+    } else if (issue.id === 'layer-overlap') {
+      const A = plan.elements[issue.a], B = plan.elements[issue.b];   /* upper · lower */
+      const mover = (B && B.kind === 'type') ? B : ((A && A.kind === 'type') ? A : null);
+      if (mover) {
+        const down = mover === B;
+        const gap = Math.round(Math.min(W, H) * 0.012) + 6;
+        for (let k = 0; k < 8; k++) {
+          const bU = typeBBox(A), bL = typeBBox(B);
+          const ix = Math.min(bU[2], bL[2]) - Math.max(bU[0], bL[0]);
+          const iy = Math.min(bU[3], bL[3]) - Math.max(bU[1], bL[1]);
+          const mb = typeBBox(mover);
+          const edgeOut = down ? mb[3] - (H - margin) : margin - mb[1];
+          if (!(ix > 2 && iy > 2) && edgeOut <= 2) break;
+          if (ix > 2 && iy > 2) {
+            /* drop the lower block under the upper one — or lift the upper one off */
+            mover.y = Math.round(mover.y + (down ? (bU[3] + gap - bL[1]) : (bL[1] - gap - bU[3])));
+          } else if (mover.size <= 10) break;
+          const after = typeBBox(mover);
+          const out = down ? after[3] - (H - margin) : margin - after[1];
+          if (out > 2) {
+            if (mover.size <= 10) break;
+            mover.size = Math.max(10, Math.round(mover.size * 0.9));
+            if (mover.leading) mover.leading = Math.max(8, Math.round(mover.leading * 0.9));
+          }
+        }
+        fixes.push({
+          issue: issue.id,
+          action: `تفكيك تداخل «${TYPE_ROLE_AR[mover.role] || mover.role}» عن «${TYPE_ROLE_AR[(mover === B ? A : B).role] || (mover === B ? A : B).role}»`
+        });
+      }
     } else if (issue.id === 'blank') {
       fixes.push({ issue: issue.id, action: 'FATAL: مخرج مسطّح — إيقاف الحلقة' });
     }
@@ -930,7 +1068,8 @@ async function runLoop(brief, opts = {}) {
 
     /* only defects with a deterministic remedy block the loop; documented
        palette notes and balance/focus remarks are reported to the designer */
-    const FIXABLE = new Set(['low-contrast', 'clutter', 'focal-ambiguity', 'weak-hierarchy', 'edge-spill', 'blank']);
+    const FIXABLE = new Set(['low-contrast', 'clutter', 'focal-ambiguity', 'weak-hierarchy', 'edge-spill', 'blank',
+      'text-overflow', 'layer-overlap']);
     const blocking = report.issues.filter(i => i.severity === 'FAIL' || FIXABLE.has(i.id));
 
     const rec = {
@@ -1057,18 +1196,22 @@ function frameRectFor(slot, W, H) {
   return [0, 0, Math.round(W * 0.42), H];          /* left-panel (default) */
 }
 
-/* measured box of a text element — lets a new layer dodge every word */
+/* measured box of a text element [x0,y0,x1,y1] — lets a new layer dodge
+   every word; diacritized text gets its real top (harakat rise above caps) */
 function typeBBox(el) {
   const maxW = el.maxW || 4000;
   const lines = wrapLines(el.text, maxW, el.font, el.size, el.weight);
-  measureCtx.font = `${el.weight} ${el.size}px ${el.font}, "Segoe UI", Tahoma, Arial, sans-serif`;
+  measureCtx.font = `${el.weight} ${el.size}px ${fontStackFor(el.font)}`;
   const w = Math.min(maxW, Math.max(...lines.map(l => measureCtx.measureText(l).width)));
   const x0 = el.align === 'center' ? el.x - w / 2 : (el.align === 'left' ? el.x : el.x - w);
   const lead = el.leading || el.size * 1.34;
-  const h = (lines.length - 1) * lead + el.size * 1.15;
-  const y0 = el.y - el.size * 0.92;
-  return [x0, y0, x0 + w, y0 + h];
+  const top = el.size * (MARK.test(el.text || '') ? 1.06 : 0.92);
+  const y0 = el.y - top;
+  const y1 = el.y + el.size * 0.23 + (lines.length - 1) * lead;
+  return [x0, y0, x0 + w, y1];
 }
+/* [x0,y0,x1,y1] → [x,y,w,h]: overlaps() speaks width/height, boxes speak edges */
+const boxWH = b => (b ? [b[0], b[1], b[2] - b[0], b[3] - b[1]] : null);
 
 /* where a decorative icon can live: try the requested slot first, then a
    fixed tour of the canvas corners/edges, and take the spot that touches
