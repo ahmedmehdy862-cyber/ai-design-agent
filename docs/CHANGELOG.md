@@ -1,7 +1,15 @@
 # CHANGELOG — سجل تغييرات مِرسم
 
 > كل إصدار هنا **مُختبَر ومُنشر** (GitHub = المصدر · Vercel = العرض). لا بند بلا دليل.
-> كاش المتصفح `?v=` يرتفع مع كل تعديل ملف؛ الإصدار الحالي **v20**.
+> كاش المتصفح `?v=` يرتفع مع كل تعديل ملف؛ الإصدار الحالي **v21**.
+
+## 2026-11-13 · Phase 1 (P0) — نظافة المفاتيح · سلامة التصدير · صحة العربية · كاش v20→**v21**
+- **المفتاح لا يدخل الـURL:** `AI_PROVIDERS.gemini.endpoint` كان يبني `?key=…` (تسريب إلى السجل/المرجع/رسائل الخطأ). صار المفتاح في ترويسة `x-goog-api-key` فقط. `analyzeRefByVision` كان يعتمد على الـURL وحده — أُضيفت له الترويسة قبل الإزالة.
+- **تعقيم رسائل الخطأ:** ردّ المزوّد يُمرَّر عبر `body.split(cfg.key).join('***')` في `callTextAPI` و`analyzeRefByVision` — لا صدى للمفتاح ولو أعاده الخادم.
+- **CSP + رؤوس أمان** في `vercel.json`: `script-src 'self'` (لا سكربتات داخلية/eval في أي vendor) · `img-src data: blob:` (المعاينة و`svgToCanvas`) · `font-src data:` (خط SVG المضمَّن — بدونه تفشل كل الصادرات صامتة) · `connect-src` يشمل المزوّد/المحرّك و`localhost` · `worker-src blob:` (عامل GIF) · `media-src blob:` (WebM) + XFO/Permissions-Policy.
+- **`tests/serve-with-headers.js`:** خادم صفر-اعتماديات يطبّق رؤوس `vercel.json` حرفيًا على 8138، ليُختبر CSP محليًا كما في الإنتاج.
+- **اختبارات مؤتمتة جديدة (في المتصفح، بلا اعتماديات):** `export-integrity` (15/15 مقاسًا/مقياسًا · PSD يُعاد تحليله ويطابق manifest · MediaBox PDF · base64 Cairo في SVG) · `arabic-correctness` (كل خط محلي يُقاس مقابل البديل · canvas≡SVG≡PNG≡PDF‑embed بفرق 0% · RTL) · `regression-phase1` (بصمات العينات الثلاث · GIF/كاروسيل/Markdown · عزل طبقة واحدة + تراجع/إعادة + بقاء localStorage · وضع بلا مفاتيح).
+- **حقيقة موثَّقة:** طبقات PSD **رَستر** — الأسماء/الترتيب تطابق manifest، والنص غير قابل للتحرير كنص.
 
 ## 2026-11-11 · P8 — التحسين النهائي · *(هذا الإصدار)*
 - **مستندات:** `API_SECURITY.md` (لا مفاتيح في الكود · جدول localStorage التسعة · كل نداءات الشبكة الخمسة مع بدائلها) · `ASSET_LICENSES.md` (OFL للخطوط · MIT للمكتبات الخمس بتأكيد من مصادرها · قواعد Openverse) · `DESIGN_INTELLIGENCE.md` (18 فحصًا · فروع الإصلاح · المراقب بالأوزان) · `CHANGELOG.md` (هذا الملف).

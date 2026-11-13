@@ -1,0 +1,57 @@
+{
+  "phase": "0",
+  "taken": "2026-11-13",
+  "environment": {
+    "url": "http://127.0.0.1:8137/?phase0-base (server: python -m http.server 8137 from web/)",
+    "cacheVersion": "v20",
+    "localStorage": "empty (0 mirsam.* keys, 0 overrides, 0 media)",
+    "fonts": { "Cairo": true, "Tajawal": true, "Almarai": true, "Amiri": true },
+    "genres": ["social-post", "story", "quote", "product-ad", "event", "menu", "banner", "thumbnail", "flyer", "card"],
+    "sizes": ["1080x1350", "1080x1080", "1080x1920", "1920x1080", "1050x600"]
+  },
+  "method": {
+    "step": "set #prompt.value (no input event) -> call runLocalParse() -> wait until #generate disabled clears (+200ms) -> snapshot lastPlan/lastRes + critic()",
+    "fingerprint": "djb2-XOR hex of JSON {canvas, elements, palette, meta, grid, focal, typeScale, rationale} (deterministic planner)",
+    "note": "Math.random exists only in applyPreset (the inspire button); makePlan/analyze/runLoop are deterministic"
+  },
+  "briefs": {
+    "warmup": {
+      "text": "منشور تجريبي للقياس",
+      "metrics": { "result": "CLEAN · notes", "canvas": [1080, 1350], "elements": 14, "contrast": 12.23, "ink": 2.2, "hues": 1, "right": 85, "hier": 2.42, "grade": "جيد جدًا", "score": 89, "issues": ["NOTE:unbalanced"], "fp": "81396221" }
+    },
+    "poster": {
+      "text": "بوستر إعلاني فلاير لمعرض الكتاب السنوي في القاعة الرئيسية، أكثر من ٤٠٠ دار نشر وخصومات حتى ٥٠٪ من ١٥ إلى ٢٥ ديسمبر، عنوان: معرض الكتاب، زر: احجز تذكرتك، بأسلوب جسور ومشع",
+      "ms": 621,
+      "metrics": { "result": "UNIMPROVABLE", "canvas": [1080, 1350], "elements": 9, "contrast": 12.23, "ink": 12.7, "hues": 2, "right": 57, "hier": 10.6, "grade": "ممتاز", "score": 93, "issues": ["NOTE:edge-spill", "WARN:text-overflow"], "fp": "c9b16ad8" },
+      "parser": { "genre": "flyer", "size": "1080x1350", "ref": "bold-commercial", "items": 0, "date": "15-25 ديسمبر area matched" }
+    },
+    "story": {
+      "text": "ستوري إنستغرام لافتتاح متجر عناية بالبشرة، عنوان: افتتاح كبير، وصف: خصم ٣٠٪ لمدة ثلاثة أيام في كل الفروع، زر: تصفح الآن، بأسلوب هادئ فاخر وأنيق",
+      "ms": 364,
+      "metrics": { "result": "CLEAN", "canvas": [1080, 1920], "elements": 8, "contrast": 19.13, "ink": 4.8, "hues": 1, "right": 79, "hier": 2.41, "grade": "ممتاز", "score": 90, "issues": [], "fp": "6be4d739" },
+      "parser": { "genre": "story", "size": "1080x1920", "ref": "luxury-dark", "items": 0 }
+    },
+    "carousel": {
+      "text": "بوست متعدد الشرائح لافتتاح متجر عناية · العنوان: افتتاح كبير · زر: اطلب الآن · خصم ٣٠٪ على كل المنتجات · هدايا مجانية لأول ١٠٠ زائر · ورشة تجميل مجانية · موسيقى حية كل مساء",
+      "ms": 553,
+      "splitMs": 1145,
+      "slides": 7,
+      "status": "✔ ٧ شرائح من الوصف — غلاف + ٥ بنود + دعوة",
+      "thumbs": 7,
+      "metricsCover": { "result": "UNIMPROVABLE", "canvas": [1080, 1350], "elements": 8, "contrast": 19.13, "ink": 7.6, "hues": 2, "right": 80, "hier": 10.6, "grade": "ممتاز", "score": 91, "issues": ["WARN:text-overflow"], "fp": "2df4ef98" },
+      "metricsAfterSplit": { "result": "UNIMPROVABLE", "elements": 6, "issues": ["WARN:text-overflow"], "fp": "a1986808" }
+    }
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "pre-existing (not caused by any change)",
+      "where": "app.js runLoop / applyFixes + analyze text-overflow",
+      "what": "poster and carousel end UNIMPROVABLE with a remaining WARN:text-overflow on element 'subhead'. Diagnosis: the safe-zone WARN (20px inside the safe area) can only be addressed by the shrink branch, which clamps at size 10px; the edge-spill 'pull to safe area' branch moves a different element (the canvas-edge spill), so no branch moves subhead upward. Round 3 records the fix message «داخل الصندوق — حجم 10px» while changing nothing, then honestly reports UNIMPROVABLE.",
+      "impact": "2 of 3 baseline briefs do not reach CLEAN; a 10px subhead sits near the canvas edge.",
+      "action": "recorded as baseline truth; not 'fixed' silently — any change must be deliberate and re-tested"
+    }
+  ],
+  "aiCalls": 0,
+  "network": "local only (no provider keys configured)"
+}

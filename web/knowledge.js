@@ -440,7 +440,10 @@ const AI_PROVIDERS = {
   gemini: {
     label: 'Gemini (Google)',
     model: 'gemini-1.5-flash',
-    endpoint: (model, key) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+    /* P1-1A: the key NEVER enters the URL — it travels only in the
+       x-goog-api-key header (callTextAPI / analyzeRefByVision both set it).
+       Query-string keys leak into history, logs, referrers and error text. */
+    endpoint: (model, key) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     body: prompt => ({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } }),
     read: j => j?.candidates?.[0]?.content?.parts?.[0]?.text || ''
   },
@@ -497,7 +500,8 @@ async function callTextAPI(cfg, promptText) {
   const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`الخادم ردّ ${res.status} — ${body.slice(0, 140)}`);
+    /* P1-1A: never echo a provider key back into the UI, whatever it returns */
+    throw new Error(`الخادم ردّ ${res.status} — ${cfg.key ? body.split(cfg.key).join('***') : body}`.slice(0, 200));
   }
   const json = await res.json().catch(() => null);
   return json;
@@ -925,12 +929,13 @@ async function analyzeRefByVision(dataUrl, question) {
   };
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    /* P1-1A: endpoint() no longer carries ?key= — the header is the only path */
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.key },
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`الخادم ردّ ${res.status} — ${body.slice(0, 140)}`);
+    throw new Error(`الخادم ردّ ${res.status} — ${cfg.key ? body.split(cfg.key).join('***') : body}`.slice(0, 200));
   }
   const json = await res.json().catch(() => null);
   const text = AI_PROVIDERS.gemini.read(json);

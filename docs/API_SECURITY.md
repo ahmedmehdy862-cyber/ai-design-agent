@@ -27,7 +27,7 @@
 
 | المفتاح | المحتوى | يُقرأ في | إلى أين يصل؟ |
 |---|---|---|---|
-| `mirsam.ai` | إعدادات المزوّد النصّي: المزوّد · النموذج · المفتاح · نقطة نهاية مخصّصة | `knowledge.js` | **إلى المزوّد نفسه فقط**، وعند نداء صريح منك: Gemini عبر `generativelanguage.googleapis.com` (المفتاح في سطر الـURL) · OpenAI عبر `api.openai.com` مع ترويسة `Authorization` · مخصّص عبر عنوانك أنت |
+| `mirsam.ai` | إعدادات المزوّد النصّي: المزوّد · النموذج · المفتاح · نقطة نهاية مخصّصة | `knowledge.js` | **إلى المزوّد نفسه فقط**، وعند نداء صريح منك: Gemini عبر `generativelanguage.googleapis.com` — **المفتاح في ترويسة `x-goog-api-key` فقط، ولا يدخل عنوان الـURL** · OpenAI عبر `api.openai.com` مع ترويسة `Authorization` · مخصّص عبر عنوانك أنت |
 | `mirsam.engine` | محرّك الصور: نقطة النهاية + الرمز | `studio.js` | **إلى نقطة النهاية التي هيّأتها أنت فقط** (freefield/ComfyUI) — والمحرّك الأصلي لا يحتاجها |
 
 ### مفاتيح بيانات تصميم (لا تغادر المتصفح أبدًا)
@@ -89,3 +89,30 @@ git grep -oh "mirsam\.[A-Za-z]*" web/ | Sort-Object -Unique                  # �
 # 4) لا CDN
 git grep -nE "https://cdn\.|unpkg\.com|jsdelivr" web/                        # ← صفر
 ```
+
+## 8. رؤوس الأمان (CSP) — وسبب كل توجيه
+
+`vercel.json` يطبّق هذه الرؤوس على كل المسارات. كل توجيه مُشتق من فحص كود فعلي، لا من قائمة جاهزة:
+
+| التوجيه | القيمة | السبب من الكود |
+|---|---|---|
+| `script-src` | `'self'` | لا سكربتات داخلية ولا معالجات `onclick` في `index.html`، ولا `eval`/`new Function` في أي vendor (فُحصت الخمسة) |
+| `style-src` | `'self' 'unsafe-inline'` | خصائص `style=` داخلية تُبنى في JS (شريط التقدّم، المعاينة) |
+| `img-src` | `'self' data: blob:` | المعاينة `canvas.toDataURL` (data) و`svgToCanvas` عبر `URL.createObjectURL` (blob) |
+| `font-src` | `'self' data:` | **حرج:** الخط العربي يُضمَّن base64 داخل صورة SVG عند التصيير — بدون `data:` تفشل كل الصادرات صامتة |
+| `connect-src` | `'self' https: http://localhost:* http://127.0.0.1:*` | المزوّد/المحرّك عنوانهما يحدّده المستخدم؛ localhost للجسر الرفيق لاحقًا |
+| `worker-src` | `'self' blob:` | `gif.js` يبني عامل الـGIF من `vendor/gif.worker.js` |
+| `media-src` | `'self' blob:` | معاينة WebM الناتجة عن `MediaRecorder` |
+| `object-src` · `base-uri` · `form-action` · `frame-ancestors` | `'none'` · `'self'` · `'self'` · `'self'` | إغلاق تضمين الكائنات، وتثبيت القاعدة، ومنع تغيير أصل النماذج والتأطير الخارجي |
+
+مع `X-Content-Type-Options: nosniff` · `Referrer-Policy: strict-origin-when-cross-origin` · `X-Frame-Options: SAMEORIGIN` · `Permissions-Policy` (كاميرا/ميكروفون/موقع/دفع/USB/مواضيع مغلقة).
+
+**كيف تُختبر محليًا بنفس رؤوس الإنتاج:** `node tests/serve-with-headers.js` → `http://127.0.0.1:8138/` (يقرأ `vercel.json` حرفيًا ويطبّقه؛ `python -m http.server` لا يطبّق الرؤوس). مسار `/tests/…` في هذا الخادم محلي فقط ولا يُنشر (Vercel ينشر `web/` وحدها).
+
+## 9. اختبارات الأمان/التصدير المؤتمتة
+
+| السكربت | يفحص |
+|---|---|
+| `tests/web/export-integrity.js` | 15/15 مقاسًا/مقياسًا بأبعاد PNG الحقيقية من IHDR · إعادة تحليل PSD ومطابقة الأسماء/الترتيب · MediaBox الـPDF والرَستر المضمّن · تضمين خط Cairo base64 في SVG |
+| `tests/web/arabic-correctness.js` | قياس كل خط محلي مقابل البديل · تطابق canvas≡SVG≡PNG≡PDF بكسلًا ببكسل · اتجاه RTL والمرساة · عينة تشكيل/مزج |
+| `tests/web/regression-phase1.js` | بصمات العينات الثلاث مقابل `tests/baseline/phase0.json` · GIF/كاروسيل/Markdown · عزل تعديل طبقة واحدة + تراجع/إعادة + بقاء `localStorage` · وضع بلا مفاتيح |
