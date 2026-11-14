@@ -616,6 +616,12 @@ async function exportVideoWebM() {
       .find(m => MediaRecorder.isTypeSupported(m));
     if (!mime) throw new Error('صيغة WebM غير مدعومة هنا — جرّب Edge/Chrome');
 
+    /* WebM recording depends on the tab staying visible: browsers throttle
+       requestAnimationFrame (and even setTimeout) to ~1 frame/s in a
+       background tab, which would produce a broken file. Refuse early with a
+       clear message instead of recording garbage. */
+    if (document.hidden) throw new Error('أبقِ التبويب مرئيًا أثناء التسجيل (التبويب في الخلفية يوقف التسجيل)');
+
     if (typeof captureSlide === 'function') captureSlide();
     const list = (typeof slides !== 'undefined' && slides.length) ? slides : [readTexts()];
     if (btn) btn.disabled = true;
@@ -642,10 +648,14 @@ async function exportVideoWebM() {
     const HOLD = 1300, FADE = 350;
     const total = rendered.length * HOLD + (rendered.length - 1) * FADE;
     const t0 = performance.now();
-    mStatus('يسجّل الفيديو بالوقت الفعلي… لا تُغلق التبويب', 'pending');
+    let aborted = false;
+    const onVis = () => { if (document.hidden) aborted = true; };
+    document.addEventListener('visibilitychange', onVis);
+    mStatus('يسجّل الفيديو بالوقت الفعلي… لا تُغلق التبويب ولا تُخفِه', 'pending');
 
     await new Promise(resolve => {
       const step = () => {
+        if (aborted) { resolve(); return; }
         const t = performance.now() - t0;
         let acc = 0, a = 0, b = 0, alpha = 0;
         for (let i = 0; i < rendered.length; i++) {
@@ -667,11 +677,14 @@ async function exportVideoWebM() {
           ctx.globalAlpha = 1;
         }
         if (t >= total) { resolve(); return; }
-        requestAnimationFrame(step);
+        if (document.hidden) { aborted = true; resolve(); return; }
+        setTimeout(step, 16);
       };
-      requestAnimationFrame(step);
+      setTimeout(step, 16);
     });
 
+    document.removeEventListener('visibilitychange', onVis);
+    if (aborted) throw new Error('أُوقف التسجيل: تبويب الخلفية — أبقِ التبويب مرئيًا');
     rec.stop();
     await stopped;
     const blob = new Blob(chunks, { type: 'video/webm' });
