@@ -205,6 +205,7 @@ function makePlan(b) {
       role: 'image-frame', kind: 'imageFrame', rect: frame,
       src: mediaStore.frame.src, fit: mediaStore.frame.fit || 'cover',
       radius: mediaStore.frame.radius || 0,
+      filters: mediaStore.frame.filters || null,
       fill: '#0B1218', opacity: 1, bleed: true
     });
   }
@@ -615,8 +616,10 @@ function renderSVG(plan, opts = {}) {
       if (el.src) {
         const par = el.fit === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice';
         const src = esc(el.src);
+        const fcss = frameFilterCss(el.filters);
+        const fattr = (fcss && fcss !== 'none') ? ` style="filter:${fcss}"` : '';
         body += `<image href="${src}" xlink:href="${src}" x="${x}" y="${y}" width="${w}" height="${h}"`
-          + ` preserveAspectRatio="${par}" clip-path="url(#${cid})"${op}/>`;
+          + ` preserveAspectRatio="${par}" clip-path="url(#${cid})"${fattr}${op}/>`;
       }
       if (el.stroke) {
         body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="none"`
@@ -1415,6 +1418,30 @@ function frameRectFor(slot, W, H) {
   if (slot === 'bottom-band') { const h = Math.round(H * 0.28); return [0, H - h, W, h]; }
   if (slot === 'corner') { const s = Math.round(Math.min(W, H) * 0.34); return [0, 0, s, s]; }
   return [0, 0, Math.round(W * 0.42), H];          /* left-panel (default) */
+}
+
+/* image-frame filters: stored as numbers, rendered as one CSS filter string.
+   Persisted in mediaStore.frame.filters and applied to the <image> element,
+   so every export (PNG/SVG/PDF/PSD) carries the filtered pixels. */
+const FRAME_FILTER_DEFAULTS = { grayscale: 0, sepia: 0, invert: 0, hueRotate: 0, brightness: 100, contrast: 100, saturation: 100, blur: 0 };
+function frameFiltersOf(f) {
+  const out = Object.assign({}, FRAME_FILTER_DEFAULTS);
+  const src = (f && f.filters) ? f.filters : (f || {});
+  for (const k of Object.keys(FRAME_FILTER_DEFAULTS)) if (src[k] != null) out[k] = Number(src[k]);
+  return out;
+}
+function frameFilterCss(f) {
+  const x = frameFiltersOf(f);
+  const parts = [];
+  if (x.grayscale) parts.push('grayscale(' + x.grayscale + '%)');
+  if (x.sepia) parts.push('sepia(' + x.sepia + '%)');
+  if (x.invert) parts.push('invert(' + x.invert + '%)');
+  if (x.hueRotate) parts.push('hue-rotate(' + x.hueRotate + 'deg)');
+  if (x.brightness !== 100) parts.push('brightness(' + x.brightness + '%)');
+  if (x.contrast !== 100) parts.push('contrast(' + x.contrast + '%)');
+  if (x.saturation !== 100) parts.push('saturate(' + x.saturation + '%)');
+  if (x.blur) parts.push('blur(' + x.blur + 'px)');
+  return parts.join(' ');
 }
 
 /* measured box of a text element [x0,y0,x1,y1] — lets a new layer dodge

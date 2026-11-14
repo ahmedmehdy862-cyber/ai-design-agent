@@ -722,6 +722,7 @@ document.addEventListener('DOMContentLoaded', () => {
    ========================================================================= */
 function refreshDesign() {
   if (typeof renderLayers === 'function') renderLayers(true);
+  if (typeof syncFrameFilterUI === 'function') syncFrameFilterUI();
   return generate();
 }
 
@@ -1036,3 +1037,83 @@ document.addEventListener('DOMContentLoaded', () => {
       mStatus(`تركيب GIF… ${Math.round(p * 100)}٪`, 'pending'))
   ));
 });
+/* =========================================================================
+   image-frame filters — UI binding (studio.js)
+   Sliders map 1:1 to FRAME_FILTER_DEFAULTS keys; every change persists to
+   mediaStore.frame.filters and re-renders, so PNG/SVG/PDF/PSD all carry it.
+   ========================================================================= */
+const FILTER_SLIDER_MAP = [
+  ['fGray', 'grayscale', v => v + '%'],
+  ['fSepia', 'sepia', v => v + '%'],
+  ['fInvert', 'invert', v => v + '%'],
+  ['fHue', 'hueRotate', v => v + '°'],
+  ['fBright', 'brightness', v => v + '%'],
+  ['fContrast', 'contrast', v => v + '%'],
+  ['fSaturate', 'saturation', v => v + '%'],
+  ['fBlur', 'blur', v => (Number(v) % 1 ? Number(v).toFixed(1) : v) + 'px']
+];
+
+function frameFilterValuesFromUI() {
+  const out = {};
+  for (const [id, key] of FILTER_SLIDER_MAP.map(([i, k]) => [i, k])) {
+    const el = document.getElementById(id);
+    if (el) out[key] = Number(el.value);
+  }
+  return out;
+}
+
+function syncFrameFilterUI() {
+  const box = document.getElementById('frameFilterBox');
+  const has = !!(mediaStore.frame && mediaStore.frame.src);
+  if (box) box.hidden = !has;
+  if (!has) return;
+  const f = (mediaStore.frame && mediaStore.frame.filters) || {};
+  const merged = Object.assign({}, FRAME_FILTER_DEFAULTS, f);
+  for (const [id, key, fmt] of FILTER_SLIDER_MAP) {
+    const sl = document.getElementById(id);
+    const vl = document.getElementById(id + 'V');
+    if (sl) sl.value = merged[key];
+    if (vl) vl.textContent = fmt(merged[key]);
+  }
+}
+
+function applyFrameFiltersFromUI() {
+  if (!mediaStore.frame) return;
+  const filters = frameFilterValuesFromUI();
+  patchFrame({ filters });
+  saveMedia();
+  if (typeof generate === 'function') generate();
+  const st = document.getElementById('frameFilterStatus');
+  if (st) { st.className = 'status ok'; st.textContent = '✔ الفلاتر مُطبَّقة — تُحفظ محليًا'; }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  for (const [id, key, fmt] of FILTER_SLIDER_MAP) {
+    const sl = document.getElementById(id);
+    const vl = document.getElementById(id + 'V');
+    if (!sl) continue;
+    sl.addEventListener('input', () => {
+      if (vl) vl.textContent = fmt(sl.value);
+      applyFrameFiltersFromUI();
+    });
+  }
+  const reset = document.getElementById('frameFilterReset');
+  if (reset) reset.addEventListener('click', () => {
+    if (!mediaStore.frame) return;
+    patchFrame({ filters: Object.assign({}, FRAME_FILTER_DEFAULTS) });
+    saveMedia();
+    syncFrameFilterUI();
+    if (typeof generate === 'function') generate();
+    const st = document.getElementById('frameFilterStatus');
+    if (st) { st.className = 'status ok'; st.textContent = 'أُعيد ضبط الفلاتر'; }
+  });
+  syncFrameFilterUI();
+});
+
+/* keep the panel in sync when the frame changes */
+const _origRefreshDesign = (typeof refreshDesign === 'function') ? refreshDesign : null;
+if (_origRefreshDesign) {
+  const wrapped = function () { const r = _origRefreshDesign.apply(this, arguments); syncFrameFilterUI(); return r; };
+  // replace global
+  try { window.refreshDesign = wrapped; } catch { /* ignore */ }
+}
