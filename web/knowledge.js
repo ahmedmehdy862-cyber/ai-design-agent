@@ -486,10 +486,31 @@ function loadAIConfig() {
 }
 function saveAIConfig(cfg) { localStorage.setItem('mirsam.ai', JSON.stringify(cfg)); }
 
+/* P1-2B — AI call cache.
+   Identical (provider · model · endpoint · prompt) returns the stored response
+   with ZERO network calls. Memory only, never localStorage: a prompt contains
+   the user's brief, so it is kept for this session and dropped on reload.
+   Local analysis stays the default — this only avoids paying twice for the
+   same optional AI request. No merging needed: each workflow (brief parse /
+   concepts / vision) already issues exactly one request. */
+const AI_CACHE = new Map();
+const AI_CACHE_MAX = 24;
+const aiCacheStats = { hits: 0, misses: 0 };
+function aiCacheKey(cfg, promptText) {
+  const src = [cfg.provider || '', cfg.model || '', cfg.endpoint || '', cfg.key ? 'k' : '', promptText].join('\u0000');
+  let h = 5381;
+  for (let i = 0; i < src.length; i++) h = (((h << 5) + h) ^ src.charCodeAt(i)) >>> 0;
+  return h.toString(16) + ':' + src.length;
+}
+function clearAiCache() { AI_CACHE.clear(); aiCacheStats.hits = 0; aiCacheStats.misses = 0; }
+
 async function callTextAPI(cfg, promptText) {
   const p = AI_PROVIDERS[cfg.provider] || AI_PROVIDERS.openai;
   const url = p.endpoint(cfg.model || p.model, cfg.key || '', cfg.endpoint || '');
   if (!url) throw new Error('لم يُضبط رابط نقطة النهاية');
+  const ck = aiCacheKey(cfg, promptText);
+  if (AI_CACHE.has(ck)) { aiCacheStats.hits++; return JSON.parse(AI_CACHE.get(ck)); }
+  aiCacheStats.misses++;
   const payload = p.body(promptText);
   if (cfg.provider !== 'gemini' && payload.model === undefined) payload.model = cfg.model || p.model;
   const headers = { 'Content-Type': 'application/json' };
@@ -504,6 +525,10 @@ async function callTextAPI(cfg, promptText) {
     throw new Error(`الخادم ردّ ${res.status} — ${cfg.key ? body.split(cfg.key).join('***') : body}`.slice(0, 200));
   }
   const json = await res.json().catch(() => null);
+  if (json) {
+    AI_CACHE.set(ck, JSON.stringify(json));
+    if (AI_CACHE.size > AI_CACHE_MAX) AI_CACHE.delete(AI_CACHE.keys().next().value);
+  }
   return json;
 }
 

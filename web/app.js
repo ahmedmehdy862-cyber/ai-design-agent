@@ -1198,6 +1198,12 @@ function syncKnowledgeRationale(plan) {
     .concat(plan.knowledgeApplied.map(s => 'مبدأ مُطبَّق: ' + s));
 }
 
+/* defects with a deterministic remedy block the loop; documented palette notes
+   and balance/focus remarks are reported to the designer (shared with the
+   patch path so both judge the same pixels by the same rule) */
+const FIXABLE_ISSUES = new Set(['low-contrast', 'clutter', 'focal-ambiguity', 'weak-hierarchy', 'edge-spill', 'blank',
+  'text-overflow', 'layer-overlap', 'align-drift']);
+
 async function runLoop(brief, opts = {}) {
   const maxRetries = opts.maxRetries ?? 3;
   const autoFix = opts.autoFix ?? true;
@@ -1219,9 +1225,7 @@ async function runLoop(brief, opts = {}) {
 
     /* only defects with a deterministic remedy block the loop; documented
        palette notes and balance/focus remarks are reported to the designer */
-    const FIXABLE = new Set(['low-contrast', 'clutter', 'focal-ambiguity', 'weak-hierarchy', 'edge-spill', 'blank',
-      'text-overflow', 'layer-overlap', 'align-drift']);
-    const blocking = report.issues.filter(i => i.severity === 'FAIL' || FIXABLE.has(i.id));
+    const blocking = report.issues.filter(i => i.severity === 'FAIL' || FIXABLE_ISSUES.has(i.id));
 
     const rec = {
       attempt, report, canvas, mask,
@@ -1262,6 +1266,34 @@ async function runLoop(brief, opts = {}) {
     report: finalReport, loopReport: last.report, result: last.result || 'WARN'
   };
 }
+
+/* =========================================================================
+   P1-2A — patch render (revision by layer id, never a rebuild)
+   A designer edit is applied to the plan that is already on screen and only
+   the pixels are re-rendered: no makePlan, no correction loop, no automatic
+   fix that could silently erase the edit. Overrides are idempotent (each
+   element keeps its planned `base`), so the patch is exact even when the same
+   key is edited repeatedly. QA still measures the patched pixels — the panel
+   never claims a state it has not measured.
+   ========================================================================= */
+let patchTimer = null;
+async function patchRender() {
+  if (!lastPlan || !lastRes) { generate(); return; }
+  const plan = lastPlan;
+  applyOverrides(plan.elements);
+  const [W, H] = plan.canvas;
+  const canvas = finish(await svgToCanvas(renderSVG(plan), W, H), plan);
+  const mask = plan.elements.some(e => e.bleed)
+    ? await svgToCanvas(renderSVG(plan, { skipBleed: true }), W, H)
+    : canvas;
+  const report = analyze(mask, plan, { coverage: coverageOf(canvas) });
+  const blocking = report.issues.some(i => i.severity === 'FAIL' || FIXABLE_ISSUES.has(i.id));
+  const notes = report.issues.some(i => i.severity === 'NOTE'
+    || (i.id === 'edge-spill' && plan.elements.some(e => e.bleed)) || i.id === 'palette-creep');
+  const result = blocking ? 'WARN' : (notes ? 'CLEAN · notes' : 'CLEAN');
+  renderUI({ plan, canvas, report, history: lastRes.history || [], result, loopReport: report });
+}
+const debouncedPatch = () => { clearTimeout(patchTimer); patchTimer = setTimeout(patchRender, 120); };
 
 /* =========================================================================
    UI

@@ -73,7 +73,8 @@ function setOverride(key, patch, label) {
   if (!Object.keys(cur).length) delete overrides[key];
   saveOverrides();   /* B8: survive a page refresh */
   inspStatus(`${label} — ${Object.keys(overrides).length ? 'حُفظ التعديل ويبقى بعد التوليد' : 'أُعيد العنصر لقيمته'}`, 'ok');
-  debounced();
+  /* P1-2A: a single-layer edit re-renders the current plan — it never rebuilds */
+  if (typeof debouncedPatch === 'function') debouncedPatch(); else debounced();
 }
 
 function resetAll() {
